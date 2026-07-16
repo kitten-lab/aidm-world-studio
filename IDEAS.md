@@ -3,9 +3,11 @@
 Living list of half-finished concepts and polish intents for **AIDM World Studio**.  
 Review occasionally; promote an item only when it beats “expand the engine again.”
 
-**Larger product map (Silo / ADM / AIDM / Forestry / history):** see [docs/product-map.md](docs/product-map.md) — durable doctrine in-repo so it is not lost in chat.
+**Larger product map (Silo / ADM / AIDM / Forestry / history):** see [docs/product-map.md](docs/product-map.md) — durable doctrine in-repo so it is not lost in chat. Includes **shipped** story-when backbone *and* **parked** extended ideas (bags, visit, fold, lock, event VENs).
 
-**Current product stance:** stop expanding; perfect tool use. Prefer display, look sheets, help surfaces, word choice, and interaction clarity over new VEN kinds or systems. History/snaps (see product map) is the next *foundation* theme when leaving pure polish.
+**Shipped foundation (story when):** `when @N` / `when @unknown` on create/spawn/lore; `history nodes|here|on|ven`. Live with this in the tool before bags/visit.
+
+**Current product stance:** perfect tool use + live with history backbone. Prefer display polish and real play feedback over new ontology. Full history bags / visit / fold — see product-map “Later / parked.”
 
 ---
 
