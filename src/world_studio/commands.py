@@ -3916,27 +3916,73 @@ def _parse_create_of(
     return name_side, desc, parent_query
 
 
+def _create_usage() -> str:
+    return (
+        "Usage (flags, free order):\n"
+        "  create --type sense/feeling --when 0 --name Satisfaction "
+        "--desc The feeling of something working well.\n"
+        "  Short: -t -w -n -d  ·  also --kind --description --of Parent\n"
+        "Legacy: create <kind>[/subtype] <name> [| desc] [of Parent] [when @N]\n"
+        f"Kinds: {', '.join(KINDS)}"
+    )
+
+
 def _create(world: World, arg: str) -> str:
     """
-    create <kind> <name> [| description]
-    create <kind> <name> of <parent> [| description]
-    create <kind>/<subtype> <name> [| description]
+    create --type <kind[/subtype]> --name <title> [--desc …] [--when N] [--of parent]
+    create <kind> <name> [| description] [of parent] [when @N]
 
-    Lean roots: person place container thing folio symbol sense (+ realm timeline).
-    Legacy aliases: book→folio, object→thing, feeling→sense, archetype→person/archetype.
+    Lean roots + free-order flags so type/when/name/desc are not order-fragile.
     """
-    parts = arg.split(maxsplit=1)
-    if len(parts) < 2:
-        return fmt.hint(
-            f"Usage: create <kind>[/subtype] <name> [of <parent>] [| description]\n"
-            f"Kinds: {', '.join(KINDS)}\n"
-            f"Inner life (in a person): sense  ·  person/archetype\n"
-            f"Subtype e.g. create folio/book …  ·  create sense/longing …  ·  "
-            f"create place/app …  ·  create thing/game …\n"
-            f"Lineage e.g. create thing Secret Document of File | Classified…"
-        )
-    kind_spec, rest = parts[0], parts[1]
-    kind, subtype = parse_kind_spec(kind_spec)
+    from .argflags import (
+        looks_like_flag_command,
+        parse_named_flags,
+        story_when_from_flag,
+    )
+    from .story_when import peel_story_when_suffix, resolve_strand_for_record
+
+    arg = (arg or "").strip()
+    if not arg:
+        return fmt.hint(_create_usage())
+
+    story_when = "@unknown"
+    node_index: int | None = None
+    kind: str
+    subtype: str | None
+    name: str
+    desc: str
+    parent_query: str | None = None
+
+    if looks_like_flag_command(arg):
+        parsed = parse_named_flags(arg)
+        if parsed.error:
+            return fmt.err(parsed.error)
+        kind_spec = parsed.get("type")
+        name = parsed.get("name")
+        desc = parsed.get("desc")
+        parent_query = parsed.get("of") or None
+        if not kind_spec and parsed.positionals:
+            kind_spec = parsed.positionals[0]
+        if not name and len(parsed.positionals) >= 2:
+            name = " ".join(parsed.positionals[1:])
+        elif not name and len(parsed.positionals) == 1 and parsed.get("type"):
+            name = parsed.positionals[0]
+        if not kind_spec or not name:
+            return fmt.hint(_create_usage())
+        kind, subtype = parse_kind_spec(kind_spec)
+        if "when" in parsed.flags:
+            story_when, node_index = story_when_from_flag(parsed.get("when"))
+    else:
+        parts = arg.split(maxsplit=1)
+        if len(parts) < 2:
+            return fmt.hint(_create_usage())
+        kind_spec, rest = parts[0], parts[1]
+        kind, subtype = parse_kind_spec(kind_spec)
+        rest, story_when, node_index = peel_story_when_suffix(rest)
+        name, desc, parent_query = _parse_create_of(world, rest)
+        if not name:
+            return fmt.hint(_create_usage())
+
     if kind not in KINDS:
         return fmt.err(
             f"Unknown kind {kind!r}.  Try: kinds  ·  "
@@ -3946,21 +3992,11 @@ def _create(world: World, arg: str) -> str:
         return fmt.err(
             f"Subtype not used on {kind!r}  ·  adventure roots take subtypes."
         )
-    from .story_when import peel_story_when_suffix, resolve_strand_for_record
-
-    rest, story_when, node_index = peel_story_when_suffix(rest)
-    name, desc, parent_query = _parse_create_of(world, rest)
-    if not name:
-        return fmt.hint(
-            "Usage: create <kind> <name> [of <parent>] [| description] "
-            "[when @N | when @unknown]"
-        )
     parent_ven_id = None
     parent_label = None
     if parent_query:
         parent = world.find_ven(parent_query)
         if parent is None:
-            # Should not happen: _parse_create_of only sets when parent resolves
             return fmt.err(f"No parent VEN matching {parent_query!r}.")
         parent_ven_id = parent.id
         parent_label = parent.name
@@ -3998,31 +4034,61 @@ def _create(world: World, arg: str) -> str:
     )
 
 
+def _spawn_usage() -> str:
+    return (
+        "Usage (flags, free order):\n"
+        "  spawn --ven field-notes --as Ritual Notes --when 2\n"
+        "  Short: -n for title also works as --as  ·  --when 0 or --when unknown\n"
+        "Legacy: spawn <ven> [as <title>] [when @N]\n"
+        "  Places: create place Room  ·  spawn room as Kitchen  ·  link …"
+    )
+
+
 def _spawn(world: World, arg: str) -> str:
     """
-    spawn <ven> [as <title>]
+    spawn --ven <prime> [--as <title>] [--when N]
+    spawn <ven> [as <title>] [when @N]
 
-    Things (object, book, person, …) land in the current place.
-    Places are free-standing rooms (not nested here) — link them with
-    ``link <exit> -> <title> both``. Use a place prime (create place Room)
-    as a template for many room instances.
+    Things land in the current place. Places spawn free-standing (link after).
     """
-    if not arg:
-        return fmt.hint(
-            "Usage: spawn <ven-slug-or-code> [as <instance title>] "
-            "[when @N | when @unknown]\n"
-            "  Things: spawn field-notes as Ritual Notes  (into this place)\n"
-            "  Places: create place Room  ·  spawn room as Kitchen  ·  link door -> Kitchen both"
-        )
+    from .argflags import (
+        looks_like_flag_command,
+        parse_named_flags,
+        story_when_from_flag,
+    )
     from .story_when import peel_story_when_suffix
 
-    arg, story_when, node_index = peel_story_when_suffix(arg)
-    name_override = None
-    if " as " in arg.lower():
-        idx = arg.lower().rfind(" as ")
-        target, name_override = arg[:idx].strip(), arg[idx + 4 :].strip()
+    if not arg:
+        return fmt.hint(_spawn_usage())
+
+    story_when = "@unknown"
+    node_index: int | None = None
+    name_override: str | None = None
+    target: str
+
+    if looks_like_flag_command(arg):
+        parsed = parse_named_flags(arg)
+        if parsed.error:
+            return fmt.err(parsed.error)
+        target = parsed.get("ven")
+        # --as title, or --name title (same idea as create --name)
+        name_override = parsed.get("as") or parsed.get("name") or None
+        if not target and parsed.positionals:
+            target = parsed.positionals[0]
+        if not name_override and len(parsed.positionals) >= 2:
+            name_override = " ".join(parsed.positionals[1:])
+        if not target:
+            return fmt.hint(_spawn_usage())
+        if "when" in parsed.flags:
+            story_when, node_index = story_when_from_flag(parsed.get("when"))
     else:
-        target = arg.strip()
+        arg, story_when, node_index = peel_story_when_suffix(arg)
+        name_override = None
+        if " as " in arg.lower():
+            idx = arg.lower().rfind(" as ")
+            target, name_override = arg[:idx].strip(), arg[idx + 4 :].strip()
+        else:
+            target = arg.strip()
     ven = world.find_ven(target)
     if not ven:
         return fmt.err(f"No VEN matching {target!r}.")

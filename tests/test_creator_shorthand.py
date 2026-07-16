@@ -41,7 +41,11 @@ class CreatorShorthandTests(unittest.TestCase):
     def test_dot_c_usage_when_bare(self) -> None:
         r = dispatch(self.world, ".c")
         self.assertTrue(r.ok)
-        self.assertIn("Usage: create", plain(r.message))
+        msg = plain(r.message)
+        self.assertTrue(
+            "Usage: create" in msg or "create --type" in msg or "Usage (flags" in msg,
+            msg=msg,
+        )
 
     def test_help_dot_c(self) -> None:
         r = dispatch(self.world, "help .c")

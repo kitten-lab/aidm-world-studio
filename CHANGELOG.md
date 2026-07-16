@@ -9,6 +9,7 @@ Format: dated bullets, one line each — what landed, not a full story.
 
 ## 2026-07-16
 
+- **Create/spawn flags:** free-order `--type/--name/--desc/--when` (and short `-t -n -d -w`); legacy `|` / `when @N` still work
 - **History backbone:** timeline nodes + life-of-item `history_entries`; `create`/`spawn`/`lore` take `when @N` or `when @unknown`; `history nodes|here|on|ven` (extended bag/visit/fold ideas kept in product-map, not built)
 - Add [docs/product-map.md](docs/product-map.md) — ADM / Silo / AIDM / Forestry / history doctrine in-repo
 - Link product map from [IDEAS.md](IDEAS.md)

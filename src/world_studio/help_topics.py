@@ -1024,60 +1024,37 @@ def _init_topics() -> None:
                 "Make a prime VEN — the species the world knows. "
                 "Then spawn lived copies into places."
             ),
-            fmt.section("Pattern"),
+            fmt.section("Pattern (flags — free order)"),
             fmt.example_line(
-                "create kind[/subtype] Title | Description",
-                "Prime only — no copy in the world yet",
+                "create --type sense/feeling --when 0 --name Satisfaction "
+                "--desc The feeling of something working well.",
+                "Markers; any order",
             ),
             fmt.example_line(
-                ".c kind[/subtype] Title | Description",
-                "Same · maker shorthand",
+                "create -t thing -n Quill -d Soft graphite. -w 0",
+                "Short flags",
+            ),
+            fmt.hint(
+                "--type/--kind/-t  ·  --name/-n  ·  --desc/-d  ·  --when/-w  ·  --of parent"
             ),
             fmt.hint("Roots: person · place · container · thing · folio · symbol · sense"),
-            fmt.hint("(+ realm · timeline) · optional /subtype is just flavor"),
-            fmt.section("Examples"),
+            fmt.section("Legacy (still works)"),
             fmt.example_line(
                 "create folio Field Notes | Working notebook.",
-                "Leaf-bearing prime (folios hold pages)",
+                "kind name | desc",
             ),
             fmt.example_line(
-                "create folio/sketchbook Daybook | Soft graphite.",
-                "Same root · sketchbook flavor (book, file-folder, …)",
-            ),
-            fmt.example_line(
-                "create sense/longing Patient Longing | Distance is loyalty.",
-                "Inner life when put into a person",
-            ),
-            fmt.example_line(
-                "create person/archetype The Road-Mapper | Maps that miss someone.",
-                "Person of a symbol",
-            ),
-            fmt.example_line(
-                "create place/app Mailroom | Soft list light.",
-                "Place flavor — or dig place/app …",
-            ),
-            fmt.example_line(
-                "create thing/game Kitten Detective | Cartridge.",
-                "Portal-capable thing",
-            ),
-            fmt.example_line(
-                "create container Chest | Holds what the road forgets.",
-                "Holds other things / enterable",
+                "create sense/longing Patient Longing | Distance is loyalty. when @0",
+                "subtype + story when",
             ),
             fmt.example_line(
                 "create thing Secret Document of File | Classified.",
-                "Lineage: child of prime File",
+                "Lineage: of parent",
             ),
-            fmt.section("Story when (timeline node)"),
-            fmt.example_line(
-                "create thing Quill | A pen. when @0",
-                "Story when = node 0 on current timeline",
-            ),
-            fmt.hint("Omitted → @unknown  ·  see help history"),
             fmt.section("Then instance"),
             fmt.example_line(
-                "spawn field-notes as Ritual Notes",
-                "Lived copy here (see help spawn)",
+                "spawn --ven field-notes --as Ritual Notes --when 0",
+                "See help spawn",
             ),
             fmt.section("Old words still work"),
             fmt.hint(
@@ -1093,21 +1070,25 @@ def _init_topics() -> None:
             _p(
                 "Story when along a timeline: numbered nodes (@0, @1, …) or @unknown. "
                 "Craft time is always stored separately. "
-                "create / spawn / lore can take trailing when @N. "
+                "Prefer create/spawn flags: --when 0. Legacy: when @0. "
                 "Not the multiverse timeline layer command — this is material history."
             ),
             fmt.section("Pattern"),
             fmt.example_line(
-                "create thing Quill | Soft. when @2",
-                "Prime history @2 on current strand",
+                "create --type thing --name Quill --desc Soft. --when 2",
+                "Preferred flags (any order)",
             ),
             fmt.example_line(
-                "spawn quill as Pocket Quill when @2",
+                "spawn --ven quill --as Pocket Quill --when 2",
                 "Instance history @2",
             ),
             fmt.example_line(
+                "create thing Quill | Soft. when @2",
+                "Legacy still works",
+            ),
+            fmt.example_line(
                 "lore add Note | Body. when @0",
-                "Or freeform when stamp; story @N if when @N",
+                "Lore: freeform stamp and/or when @N",
             ),
             fmt.section("List"),
             fmt.example_line("history nodes", "Nodes on this place's timeline"),
@@ -1128,27 +1109,27 @@ def _init_topics() -> None:
                 "Short ref: FOL-001-0001, THG-002-0001, … "
                 "Optional story when: when @N or when @unknown."
             ),
-            fmt.section("Pattern"),
+            fmt.section("Pattern (flags — free order)"),
             fmt.example_line(
-                "spawn <prime> as Title",
-                "Lived copy · optional as-title",
+                "spawn --ven field-notes --as Ritual Notes --when 2",
+                "Prime · lived title · story node",
             ),
             fmt.example_line(
+                "spawn -n Pocket Notes --ven field-notes -w 0",
+                "--name / -n same as --as for title",
+            ),
+            fmt.section("Legacy (still works)"),
+            fmt.example_line(
                 "spawn <prime> as Title when @2",
-                "Story when = node 2 on current timeline",
+                "Lived copy · story when",
             ),
             fmt.example_line(
                 ".s <prime> as Title",
-                "Same · maker shorthand",
-            ),
-            fmt.section("Examples"),
-            fmt.example_line(
-                "spawn field-notes as Ritual Notes",
-                "Named copy · story @unknown if when omitted",
+                "Maker shorthand",
             ),
             fmt.example_line(
                 "spawn field-notes",
-                "Bare spawn · auto-suffixes if copies exist (Field Notes 2, …)",
+                "Bare spawn · auto-suffix · story @unknown",
             ),
             fmt.section("Places (templates)"),
             fmt.example_line(
