@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+.env
+.python-version
+
+# Test / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Local worlds & SQLite (player data — never commit)
+worlds/
+*.world.db
+*.world.db-*
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Local playthrough DBs / folders at repo root (not source)
+/BSG
+/GENESIS
+/Great_Crossing
+/Imported.To
+/Silo
+/Terminal
+/TESTER
+/BSG/
+/GENESIS/
+/Great_Crossing/
+/Imported.To/
+/Silo/
+/Terminal/
+/TESTER/
+
+# Editor / session junk
+*.log
+.aidm/
