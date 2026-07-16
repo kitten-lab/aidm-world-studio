@@ -13,7 +13,7 @@ Captured so plans live in the **repo** (open in VS), not only in AI chat.
 - Keep **multiple thought chains** visible at once (history, lore, Silo, Chester, readiness).
 - Separate **what the stage is now** from **what Forestry / AIDM need later**.
 
-Related: [IDEAS.md](../IDEAS.md) (near-term polish / parked studio work).
+Related: [IDEAS.md](../IDEAS.md) (near-term polish / parked studio work) · [CHANGELOG.md](../CHANGELOG.md) (what shipped, one-liners).
 
 ---
 
