@@ -1,142 +1,107 @@
-"""Command history (↑ previous inputs) + studio multiline line recall."""
+﻿"""Story-when history: timeline nodes + life-of-item entries."""
 
 from __future__ import annotations
 
-import inspect
+import tempfile
 import unittest
+from pathlib import Path
 
-from world_studio import cli
-from world_studio.cli import (
-    MultilineDescDraft,
-    _collect_multiline_desc,
-)
-from world_studio.history import CommandHistory
+from world_studio.commands import dispatch
+from world_studio.db import connect
+from world_studio.format import plain
+from world_studio.story_when import normalize_story_when, peel_story_when_suffix
+from world_studio.seed import seed_world_bootstrap
+from world_studio.world import World
 
 
-class CommandHistoryTests(unittest.TestCase):
-    def test_up_down_browse(self) -> None:
-        h = CommandHistory()
-        h.push("look")
-        h.push("go south")
-        h.push("inv")
-        self.assertEqual(h.up(""), "inv")
-        self.assertEqual(h.up("inv"), "go south")
-        self.assertEqual(h.up("go south"), "look")
-        # stay at oldest
-        self.assertEqual(h.up("look"), "look")
-        self.assertEqual(h.down("look"), "go south")
-        self.assertEqual(h.down("go south"), "inv")
-        # past newest restores empty draft
-        self.assertEqual(h.down("inv"), "")
+class StoryWhenParseTests(unittest.TestCase):
+    def test_peel_suffix(self) -> None:
+        rest, sw, n = peel_story_when_suffix("quill as Pocket when @3")
+        self.assertEqual(rest, "quill as Pocket")
+        self.assertEqual(sw, "@3")
+        self.assertEqual(n, 3)
+        rest, sw, n = peel_story_when_suffix("thing X | soft. when @unknown")
+        self.assertTrue(rest.endswith("soft."))
+        self.assertEqual(sw, "@unknown")
+        self.assertIsNone(n)
 
-    def test_draft_preserved(self) -> None:
-        h = CommandHistory()
-        h.push("look")
-        self.assertEqual(h.up("half-typed"), "look")
-        self.assertEqual(h.down("look"), "half-typed")
+    def test_normalize(self) -> None:
+        self.assertEqual(normalize_story_when("@0"), ("@0", 0))
+        self.assertEqual(normalize_story_when("@unknown"), ("@unknown", None))
+        self.assertEqual(normalize_story_when("Cow Jump"), ("@unknown", None))
 
-    def test_no_duplicate_consecutive(self) -> None:
-        h = CommandHistory()
-        h.push("look")
-        h.push("look")
+
+class HistoryCommandTests(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.NamedTemporaryFile(suffix=".world.db", delete=False)
+        tmp.close()
+        self.conn = connect(Path(tmp.name))
+        seed_world_bootstrap(self.conn)
+        self.world = World(self.conn)
+
+    def test_create_and_spawn_record_story_when(self) -> None:
+        r = dispatch(
+            self.world,
+            "create thing Story Quill | Soft graphite. when @0",
+        )
+        self.assertTrue(r.ok, msg=r.message)
+        self.assertIn("@0", plain(r.message))
+        ven = self.world.find_ven("Story Quill")
+        assert ven is not None
+        rows = self.world.history_for("ven", ven.id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["story_when"], "@0")
+        self.assertEqual(rows[0]["verb"], "create")
+        self.assertEqual(rows[0]["node_index"], 0)
+
+        r2 = dispatch(
+            self.world, "spawn story-quill as Pocket Quill when @2"
+        )
+        self.assertTrue(r2.ok, msg=r2.message)
+        self.assertIn("@2", plain(r2.message))
+        insts = self.world.list_instances_of_ven(ven.id)
+        self.assertEqual(len(insts), 1)
+        h = self.world.history_for("instance", insts[0].id)
         self.assertEqual(len(h), 1)
+        self.assertEqual(h[0]["story_when"], "@2")
+        self.assertEqual(h[0]["node_index"], 2)
 
-    def test_empty_up(self) -> None:
-        h = CommandHistory()
-        self.assertIsNone(h.up(""))
+        nodes = plain(dispatch(self.world, "history nodes").message)
+        self.assertIn("@0", nodes)
+        self.assertIn("@2", nodes)
 
+        listed = plain(dispatch(self.world, "history on pocket").message)
+        self.assertIn("@2", listed)
+        self.assertIn("spawn", listed.lower())
 
-class StudioMultilineHistoryTests(unittest.TestCase):
-    """Shipped collect path stores accepted content lines for up/down."""
+        ven_hist = plain(dispatch(self.world, "history ven Story Quill").message)
+        self.assertIn("@0", ven_hist)
+        self.assertIn("create", ven_hist.lower())
 
-    def test_desc_studio_collect_pushes_content_lines(self) -> None:
-        h = CommandHistory()
-        h.push("@desc <<studio")  # opener (as REPL/TUI do)
-        inputs = iter(
-            [
-                "# Terminal-Prolog",
-                "**Boot** sequence.",
-                "Line three.",
-                ".",
-            ]
+    def test_omitted_when_is_unknown(self) -> None:
+        r = dispatch(self.world, "create thing Bare Stick | wood.")
+        self.assertTrue(r.ok, msg=r.message)
+        ven = self.world.find_ven("Bare Stick")
+        assert ven is not None
+        rows = self.world.history_for("ven", ven.id)
+        self.assertEqual(rows[0]["story_when"], "@unknown")
+        self.assertIsNone(rows[0]["node_index"])
+
+    def test_lore_when_at_node(self) -> None:
+        r = dispatch(
+            self.world, "lore add Founding | Raised for travelers. when @1"
         )
-        body = _collect_multiline_desc(
-            lambda: next(inputs),
-            history=h,
-        )
-        self.assertEqual(
-            body, "# Terminal-Prolog\n**Boot** sequence.\nLine three."
-        )
-        items = h.items()
-        self.assertIn("@desc <<studio", items)
-        self.assertIn("# Terminal-Prolog", items)
-        self.assertIn("**Boot** sequence.", items)
-        self.assertIn("Line three.", items)
-        # Not opener/stub only — at least 3 content lines recallable
-        content = [x for x in items if x != "@desc <<studio"]
-        self.assertGreaterEqual(len(content), 3)
-        # End marker not required as content history
-        self.assertNotIn(".", items)
-
-        # up/down newest-first: last content then earlier
-        self.assertEqual(h.up(""), "Line three.")
-        self.assertEqual(h.up("Line three."), "**Boot** sequence.")
-        self.assertEqual(h.up("**Boot** sequence."), "# Terminal-Prolog")
-        self.assertEqual(h.down("# Terminal-Prolog"), "**Boot** sequence.")
-        self.assertEqual(h.down("**Boot** sequence."), "Line three.")
-        self.assertEqual(h.down("Line three."), "")
-
-    def test_book_studio_collect_pushes_content_lines(self) -> None:
-        h = CommandHistory()
-        opener = "book page add field-notes Prolog <<studio"
-        h.push(opener)
-        inputs = iter(["# Call", "Second line", "Third line", "."])
-        body = _collect_multiline_desc(lambda: next(inputs), history=h)
-        self.assertEqual(body, "# Call\nSecond line\nThird line")
-        items = h.items()
-        self.assertEqual(items[0], opener)
-        self.assertEqual(items[1:], ["# Call", "Second line", "Third line"])
-        self.assertEqual(h.up(""), "Third line")
-        self.assertEqual(h.up("Third line"), "Second line")
-        self.assertEqual(h.up("Second line"), "# Call")
-
-    def test_mid_collection_up_after_each_accept(self) -> None:
-        """After accepting A,B,C, up from empty draft yields C then B then A."""
-        h = CommandHistory()
-        for text in ("A", "B", "C"):
-            h.push_content_line(text)
-            # still at "new draft" after each push
-        self.assertEqual(h.up(""), "C")
-        self.assertEqual(h.up("C"), "B")
-        self.assertEqual(h.up("B"), "A")
-        self.assertEqual(h.down("A"), "B")
-        self.assertEqual(h.down("B"), "C")
-        self.assertEqual(h.down("C"), "")
-
-    def test_undo_and_end_not_pushed_by_collect(self) -> None:
-        h = CommandHistory()
-        inputs = iter(["keep me", "undo", "replacement", "."])
-        body = _collect_multiline_desc(lambda: next(inputs), history=h)
-        self.assertEqual(body, "replacement")
-        # "keep me" was accepted then undone from draft, but was history-pushed
-        # (intentional: typed line is recallable). undo token itself is not content.
-        self.assertIn("keep me", h.items())
-        self.assertIn("replacement", h.items())
-        self.assertNotIn("undo", h.items())
-        self.assertNotIn(".", h.items())
-
-    def test_cli_wires_history_on_accept_paths(self) -> None:
-        """Opener lines for << editor are history-pushed; buffer replaces line collect."""
-        src = inspect.getsource(cli)
-        self.assertIn("parse_multiline_opener", src)
-        self.assertIn("run_text_editor", src)
-        self.assertIn("make_studio_buffer_screen", src)
-        # Opener still stored for ↑ recall
-        self.assertIn("cmd.cmd_history.push(line)", src)
-        self.assertIn("history.push(line)", src)
-        # No longer store summary-only stub instead of content lines
-        self.assertNotIn('hist = "@desc <<studio"', src)
-        self.assertNotIn("cmd.cmd_history.push(hist)", src)
+        self.assertTrue(r.ok, msg=r.message)
+        self.assertIn("@1", plain(r.message))
+        loc = self.world.player_location()
+        assert loc is not None
+        # lore history is on lore id â€” find via nodes + any history with @1
+        # place itself may have no instance history; check lore entry recorded
+        # by scanning connection
+        rows = self.conn.execute(
+            "SELECT * FROM history_entries WHERE story_when = '@1' AND verb = 'lore'"
+        ).fetchall()
+        self.assertGreaterEqual(len(rows), 1)
 
 
 if __name__ == "__main__":

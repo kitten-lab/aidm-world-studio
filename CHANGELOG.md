@@ -9,6 +9,7 @@ Format: dated bullets, one line each — what landed, not a full story.
 
 ## 2026-07-16
 
+- **History backbone:** timeline nodes + life-of-item `history_entries`; `create`/`spawn`/`lore` take `when @N` or `when @unknown`; `history nodes|here|on|ven`
 - Add [docs/product-map.md](docs/product-map.md) — ADM / Silo / AIDM / Forestry / history doctrine in-repo
 - Link product map from [IDEAS.md](IDEAS.md)
 - Add this changelog

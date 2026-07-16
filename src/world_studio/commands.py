@@ -146,6 +146,8 @@ def dispatch(world: World, line: str) -> CommandResult:
             return CommandResult(True, _rename(world, arg))
         if cmd in ("instances", "inst"):
             return CommandResult(True, _instances(world, arg))
+        if cmd == "history":
+            return CommandResult(True, _history(world, arg))
         if cmd == "put":
             return CommandResult(True, _put(world, arg))
         if cmd in ("despawn", "lose"):
@@ -2516,6 +2518,50 @@ def _lore_meta_line(row) -> str:
     return f"typed {typed}  ·  {author}"
 
 
+def _record_subject_history(
+    world: World,
+    subject_type: str,
+    subject_id: str,
+    *,
+    verb: str,
+    story_when: str,
+    node_index: int | None,
+    note: str = "",
+    realm_instance_id: str | None = None,
+    timeline_instance_id: str | None = None,
+) -> None:
+    """Write a life-of-material history row (best-effort strand from place)."""
+    from .story_when import resolve_strand_for_record
+
+    r_id, t_id = resolve_strand_for_record(
+        world,
+        realm_instance_id=realm_instance_id,
+        timeline_instance_id=timeline_instance_id,
+    )
+    world.record_history(
+        subject_type,
+        subject_id,
+        verb=verb,
+        story_when=story_when,
+        node_index=node_index,
+        realm_instance_id=r_id,
+        timeline_instance_id=t_id,
+        note=note,
+    )
+
+
+def _peel_and_story_when(text: str) -> tuple[str, str, int | None]:
+    from .story_when import peel_story_when_suffix
+
+    return peel_story_when_suffix(text)
+
+
+def _story_when_for_lore_label(when_label: str | None) -> tuple[str, int | None]:
+    from .story_when import story_when_from_lore_label
+
+    return story_when_from_lore_label(when_label)
+
+
 def _indent_lore_body(markup: str, *, spaces: int = 2) -> str:
     """Pad each line of lore body two spaces past the title column."""
     pad = " " * max(0, spaces)
@@ -2791,13 +2837,17 @@ def _lore_on_instance(world: World, rest: str) -> str:
         thing, err = _resolve_instance_target(world, target_q)
         if err or thing is None:
             return err or fmt.err(f"No match for {target_q!r}.")
+        add_rest, sw_peel, ni_peel = _peel_and_story_when(add_rest)
         parsed = parse_lore_add(add_rest)
         if not parsed:
             return fmt.hint(
                 "Usage: lore on <match> add [when <stamp> | | @stamp |] "
-                "[title |] body"
+                "[title |] body  [when @N]"
             )
         title, body, when_label = parsed
+        sw, ni = _story_when_for_lore_label(when_label)
+        if sw_peel != "@unknown":
+            sw, ni = sw_peel, ni_peel
         timeline_id = thing.timeline_instance_id
         if timeline_id is None:
             loc = world.player_location()
@@ -2815,11 +2865,22 @@ def _lore_on_instance(world: World, rest: str) -> str:
             f"lore on {thing.name}",
             lambda w, lid=lid: w.delete_lore(lid),
         )
+        _record_subject_history(
+            world,
+            "lore",
+            lid,
+            verb="lore",
+            story_when=sw,
+            node_index=ni,
+            note=title or thing.name,
+            realm_instance_id=thing.realm_instance_id,
+            timeline_instance_id=timeline_id,
+        )
         stamp_note = f"  ·  {when_label}" if when_label else ""
         ref = world.short_ref_of(thing.id)
         return fmt.ok(
             f"Lore on instance · {fmt.named_ref(thing.name, ref)}  ·  "
-            f"{lid}{stamp_note}"
+            f"{lid}{stamp_note}  ·  story {sw}"
         )
 
     thing, err = _resolve_instance_target(world, rest)
@@ -2880,13 +2941,17 @@ def _lore(world: World, arg: str) -> str:
         if " add " in lower:
             idx = lower.index(" add ")
             target, add_rest = rest[:idx].strip(), rest[idx + 5 :].strip()
+            add_rest, sw_peel, ni_peel = _peel_and_story_when(add_rest)
             parsed = parse_lore_add(add_rest)
             if not parsed:
                 return fmt.hint(
                     "Usage: lore ven <slug> add [when <stamp> | | @stamp |] "
-                    "[title |] body"
+                    "[title |] body  [when @N]"
                 )
             title, body, when_label = parsed
+            sw, ni = _story_when_for_lore_label(when_label)
+            if sw_peel != "@unknown":
+                sw, ni = sw_peel, ni_peel
             ven = world.find_ven(target)
             if not ven:
                 return fmt.err(
@@ -2904,9 +2969,19 @@ def _lore(world: World, arg: str) -> str:
                 f"lore ven {ven.slug}",
                 lambda w, lid=lid: w.delete_lore(lid),
             )
+            _record_subject_history(
+                world,
+                "lore",
+                lid,
+                verb="lore",
+                story_when=sw,
+                node_index=ni,
+                note=title or ven.name,
+            )
             stamp_note = f"  ·  {when_label}" if when_label else ""
             return fmt.ok(
-                f"Lore on VEN · {ven.name} ({ven.slug}) · {lid}{stamp_note}"
+                f"Lore on VEN · {ven.name} ({ven.slug}) · {lid}"
+                f"{stamp_note}  ·  story {sw}"
             )
         # list
         ven = world.find_ven(rest)
@@ -2926,10 +3001,14 @@ def _lore(world: World, arg: str) -> str:
     # ── place instance: add ─────────────────────────────────────────────
     if arg.lower().startswith("add "):
         # avoid treating "add from" twice (already handled)
-        parsed = parse_lore_add(arg[4:])
+        add_rest, sw_peel, ni_peel = _peel_and_story_when(arg[4:])
+        parsed = parse_lore_add(add_rest)
         if not parsed:
             return fmt.hint(_LORE_ADD_USAGE)
         title, body, when_label = parsed
+        sw, ni = _story_when_for_lore_label(when_label)
+        if sw_peel != "@unknown":
+            sw, ni = sw_peel, ni_peel
         loc = world.player_location()
         if not loc:
             return fmt.hint("Nowhere.")
@@ -2946,8 +3025,21 @@ def _lore(world: World, arg: str) -> str:
             "lore add",
             lambda w, lid=lid: w.delete_lore(lid),
         )
+        _record_subject_history(
+            world,
+            "lore",
+            lid,
+            verb="lore",
+            story_when=sw,
+            node_index=ni,
+            note=title or loc.name,
+            realm_instance_id=loc.realm_instance_id,
+            timeline_instance_id=loc.timeline_instance_id,
+        )
         stamp_note = f"  ·  {when_label}" if when_label else ""
-        return fmt.ok(f"Lore revision recorded · {lid}{stamp_note}")
+        return fmt.ok(
+            f"Lore revision recorded · {lid}{stamp_note}  ·  story {sw}"
+        )
 
     if arg.lower().startswith("search "):
         q = arg[7:].strip()
@@ -3635,6 +3727,135 @@ def _text_restore(world: World, rev_q: str) -> str:
     return fmt.err(f"Cannot restore {st}/{field}.")
 
 
+def _history(world: World, arg: str) -> str:
+    """
+    history                  — usage
+    history nodes            — nodes on current place timeline
+    history here             — history for this place instance
+    history on <match>       — history for an instance
+    history ven <match>      — history for a prime VEN
+    """
+    from .story_when import format_history_line
+    from .ids import display_name as dname
+
+    arg = (arg or "").strip()
+    low = arg.lower()
+
+    if not arg:
+        return fmt.hint(
+            "Usage: history nodes  ·  history here  ·  history on <thing>  ·  "
+            "history ven <prime>\n"
+            "  Story when on create/spawn:  … when @3  ·  … when @unknown\n"
+            "  Craft time is always stored; story when is @N or @unknown"
+        )
+
+    if low in ("nodes", "node"):
+        loc = world.player_location()
+        if not loc or not loc.timeline_instance_id:
+            return fmt.hint("No timeline on this place.  timeline set <name>")
+        tl = world.get_instance(loc.timeline_instance_id)
+        nodes = world.list_timeline_nodes(loc.timeline_instance_id)
+        title = dname(tl.name) if tl else "timeline"
+        if not nodes:
+            return fmt.join_blocks(
+                fmt.section(f"Nodes · {title}"),
+                fmt.hint(
+                    "None yet.  create/spawn … when @0  ensures node 0 "
+                    "(and higher N as used)."
+                ),
+                gap=0,
+            )
+        lines = [fmt.section(f"Nodes · {title}")]
+        for n in nodes:
+            nm = (n["name"] or "").strip()
+            label = f"@{n['node_index']}"
+            if nm:
+                label = f"{label}  {nm}"
+            lines.append(fmt.bullet(label, n["created_at"] or ""))
+        return "\n".join(lines)
+
+    def _layer_names(
+        realm_id: str | None, tl_id: str | None
+    ) -> tuple[str | None, str | None]:
+        rn = tn = None
+        if realm_id:
+            r = world.get_instance(realm_id)
+            rn = dname(r.name) if r else None
+        if tl_id:
+            t = world.get_instance(tl_id)
+            tn = dname(t.name) if t else None
+        return rn, tn
+
+    def _format_entries(heading: str, rows: list) -> str:
+        if not rows:
+            return fmt.join_blocks(
+                fmt.section(heading),
+                fmt.hint("No history entries yet."),
+                gap=0,
+            )
+        lines = [fmt.section(heading)]
+        for r in rows:
+            rn, tn = _layer_names(
+                r["realm_instance_id"], r["timeline_instance_id"]
+            )
+            lines.append(
+                "  "
+                + format_history_line(
+                    verb=r["verb"] or "record",
+                    story_when=r["story_when"] or "@unknown",
+                    crafted_at=r["created_at"] or "—",
+                    realm_name=rn,
+                    timeline_name=tn,
+                    note=r["note"] or "",
+                )
+            )
+        return "\n".join(lines)
+
+    if low == "here" or low.startswith("here "):
+        loc = world.player_location()
+        if not loc:
+            return fmt.hint("Nowhere.")
+        rows = world.history_for("instance", loc.id)
+        return _format_entries(
+            f"History · {dname(loc.name)} (place)", rows
+        )
+
+    if low.startswith("ven "):
+        target = arg[4:].strip()
+        ven = world.find_ven(target)
+        if not ven:
+            return fmt.err(f"No VEN matching {target!r}.")
+        rows = world.history_for("ven", ven.id)
+        return _format_entries(f"History · {ven.name} [{ven.slug}]", rows)
+
+    if low.startswith("on "):
+        target = arg[3:].strip()
+        thing, err = _resolve_instance_target(world, target)
+        if err or thing is None:
+            return err or fmt.err(f"No match for {target!r}.")
+        rows = world.history_for("instance", thing.id)
+        ref = world.short_ref_of(thing.id)
+        return _format_entries(
+            f"History · {fmt.named_ref(thing.name, ref)}", rows
+        )
+
+    thing, err = _resolve_instance_target(world, arg)
+    if thing is not None:
+        rows = world.history_for("instance", thing.id)
+        ref = world.short_ref_of(thing.id)
+        return _format_entries(
+            f"History · {fmt.named_ref(thing.name, ref)}", rows
+        )
+    ven = world.find_ven(arg)
+    if ven is not None:
+        rows = world.history_for("ven", ven.id)
+        return _format_entries(f"History · {ven.name} [{ven.slug}]", rows)
+    return fmt.err(
+        f"No history subject matching {arg!r}.  "
+        f"Try: history on <thing>  ·  history ven <prime>  ·  history here"
+    )
+
+
 def _parse_create_of(
     world: World, rest: str
 ) -> tuple[str, str, str | None]:
@@ -3725,9 +3946,15 @@ def _create(world: World, arg: str) -> str:
         return fmt.err(
             f"Subtype not used on {kind!r}  ·  adventure roots take subtypes."
         )
+    from .story_when import peel_story_when_suffix, resolve_strand_for_record
+
+    rest, story_when, node_index = peel_story_when_suffix(rest)
     name, desc, parent_query = _parse_create_of(world, rest)
     if not name:
-        return fmt.hint("Usage: create <kind> <name> [of <parent>] [| description]")
+        return fmt.hint(
+            "Usage: create <kind> <name> [of <parent>] [| description] "
+            "[when @N | when @unknown]"
+        )
     parent_ven_id = None
     parent_label = None
     if parent_query:
@@ -3745,6 +3972,17 @@ def _create(world: World, arg: str) -> str:
         f"create {kind}",
         lambda w, vid=ven_id: w.delete_ven(vid),
     )
+    realm_id, tl_id = resolve_strand_for_record(world)
+    world.record_history(
+        "ven",
+        ven_id,
+        verb="create",
+        story_when=story_when,
+        node_index=node_index,
+        realm_instance_id=realm_id,
+        timeline_instance_id=tl_id,
+        note=name,
+    )
     ven = world.get_ven(ven_id)
     assert ven is not None
     label = format_kind_label(ven.kind, ven.subtype)
@@ -3752,6 +3990,7 @@ def _create(world: World, arg: str) -> str:
     bits = [f"{label}  ·  {code_bit}slug {ven.slug}  ·  {ven.id}"]
     if parent_label:
         bits.append(f"of {parent_label}")
+    bits.append(f"story {story_when}")
     return fmt.join_blocks(
         fmt.ok(f"Created prime VEN · {ven.name}"),
         fmt.hint("  ·  ".join(bits)),
@@ -3770,10 +4009,14 @@ def _spawn(world: World, arg: str) -> str:
     """
     if not arg:
         return fmt.hint(
-            "Usage: spawn <ven-slug-or-code> [as <instance title>]\n"
+            "Usage: spawn <ven-slug-or-code> [as <instance title>] "
+            "[when @N | when @unknown]\n"
             "  Things: spawn field-notes as Ritual Notes  (into this place)\n"
             "  Places: create place Room  ·  spawn room as Kitchen  ·  link door -> Kitchen both"
         )
+    from .story_when import peel_story_when_suffix
+
+    arg, story_when, node_index = peel_story_when_suffix(arg)
     name_override = None
     if " as " in arg.lower():
         idx = arg.lower().rfind(" as ")
@@ -3828,6 +4071,16 @@ def _spawn(world: World, arg: str) -> str:
     )
     inst = world.get_instance(inst_id)
     assert inst is not None
+    world.record_history(
+        "instance",
+        inst_id,
+        verb="spawn",
+        story_when=story_when,
+        node_index=node_index,
+        realm_instance_id=inst.realm_instance_id,
+        timeline_instance_id=inst.timeline_instance_id,
+        note=display_name(inst.name),
+    )
     ref = world.short_ref_of(inst_id)
     label = format_kind_label(ven.kind, ven.subtype)
     prime_bit = ven.code or ven.slug
@@ -3836,7 +4089,8 @@ def _spawn(world: World, arg: str) -> str:
         return fmt.join_blocks(
             fmt.ok(f"Spawned place · {fmt.named_ref(title, ref)}"),
             fmt.hint(
-                f"{label}  ·  prime {prime_bit}  ·  unlinked room  ·  {inst_id}"
+                f"{label}  ·  prime {prime_bit}  ·  unlinked room  ·  "
+                f"story {story_when}  ·  {inst_id}"
             ),
             fmt.hint(
                 f"Link:  link <exit> -> {title} both  ·  "
@@ -3848,7 +4102,8 @@ def _spawn(world: World, arg: str) -> str:
     return fmt.join_blocks(
         fmt.ok(f"Spawned · {fmt.named_ref(inst.name, ref)}"),
         fmt.hint(
-            f"{label}  ·  prime {prime_bit}  ·  {where}  ·  {inst_id}"
+            f"{label}  ·  prime {prime_bit}  ·  {where}  ·  "
+            f"story {story_when}  ·  {inst_id}"
         ),
         fmt.hint(
             f"Rename later: rename <match> as <title>  ·  list: instances {prime_bit}"

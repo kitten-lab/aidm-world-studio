@@ -35,6 +35,7 @@ _TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
     "spawn": ("spawn", ".s"),
     "rename": ("rename", "call"),
     "instances": ("instances", "inst"),
+    "history": ("history", "hist"),
     "put": ("put",),
     "despawn": ("despawn", "lose", "reclaim", "lost"),
     "elevate": ("elevate",),
@@ -129,6 +130,7 @@ _HELP_INDEX_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
             ("spawn", "Instance a VEN; prefer: spawn x as Title (.s)"),
             ("rename", "Retitle thing or place: rename here as …"),
             ("instances", "List all copies of a prime VEN"),
+            ("history", "Story when @N / @unknown · life of item"),
             ("despawn", "Lose instance to Lost Dept · reclaim · lost"),
             ("elevate", "Instance → new prime (rebind + parent lineage)"),
         ],
@@ -1066,6 +1068,12 @@ def _init_topics() -> None:
                 "create thing Secret Document of File | Classified.",
                 "Lineage: child of prime File",
             ),
+            fmt.section("Story when (timeline node)"),
+            fmt.example_line(
+                "create thing Quill | A pen. when @0",
+                "Story when = node 0 on current timeline",
+            ),
+            fmt.hint("Omitted → @unknown  ·  see help history"),
             fmt.section("Then instance"),
             fmt.example_line(
                 "spawn field-notes as Ritual Notes",
@@ -1078,7 +1086,38 @@ def _init_topics() -> None:
                 "archetype → person/archetype · concept → symbol"
             ),
             fmt.hint("Kinds: {kinds}"),
-            fmt.hint("See also: help kinds · help spawn · help folio"),
+            fmt.hint("See also: help kinds · help spawn · help folio · help history"),
+        ),
+        "history": _page(
+            "history",
+            _p(
+                "Story when along a timeline: numbered nodes (@0, @1, …) or @unknown. "
+                "Craft time is always stored separately. "
+                "create / spawn / lore can take trailing when @N. "
+                "Not the multiverse timeline layer command — this is material history."
+            ),
+            fmt.section("Pattern"),
+            fmt.example_line(
+                "create thing Quill | Soft. when @2",
+                "Prime history @2 on current strand",
+            ),
+            fmt.example_line(
+                "spawn quill as Pocket Quill when @2",
+                "Instance history @2",
+            ),
+            fmt.example_line(
+                "lore add Note | Body. when @0",
+                "Or freeform when stamp; story @N if when @N",
+            ),
+            fmt.section("List"),
+            fmt.example_line("history nodes", "Nodes on this place's timeline"),
+            fmt.example_line("history here", "This place instance"),
+            fmt.example_line("history on quill", "One instance"),
+            fmt.example_line("history ven Quill", "Prime VEN"),
+            fmt.hint(
+                "Omitted when → @unknown on realm/timeline of the act. "
+                "Bags/visit later — not this command."
+            ),
         ),
         "spawn": _page(
             "spawn",
@@ -1086,12 +1125,17 @@ def _init_topics() -> None:
                 "Create an instance of a prime. "
                 "Things, folios, people, sense… land here. "
                 "Places spawn free-standing (link them with link / go). "
-                "Short ref: FOL-001-0001, THG-002-0001, …"
+                "Short ref: FOL-001-0001, THG-002-0001, … "
+                "Optional story when: when @N or when @unknown."
             ),
             fmt.section("Pattern"),
             fmt.example_line(
                 "spawn <prime> as Title",
                 "Lived copy · optional as-title",
+            ),
+            fmt.example_line(
+                "spawn <prime> as Title when @2",
+                "Story when = node 2 on current timeline",
             ),
             fmt.example_line(
                 ".s <prime> as Title",
@@ -1100,7 +1144,7 @@ def _init_topics() -> None:
             fmt.section("Examples"),
             fmt.example_line(
                 "spawn field-notes as Ritual Notes",
-                "Named copy of the Field Notes prime",
+                "Named copy · story @unknown if when omitted",
             ),
             fmt.example_line(
                 "spawn field-notes",

@@ -146,6 +146,52 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_dialogs_slug ON dialogs(slug)"
         )
 
+    # Story-time nodes + material history (life of item)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS timeline_nodes (
+            id                      TEXT PRIMARY KEY,
+            timeline_instance_id    TEXT NOT NULL REFERENCES instances(id)
+                ON DELETE CASCADE,
+            node_index              INTEGER NOT NULL,
+            name                    TEXT NOT NULL DEFAULT '',
+            description             TEXT NOT NULL DEFAULT '',
+            created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (timeline_instance_id, node_index)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_timeline_nodes_tl "
+        "ON timeline_nodes(timeline_instance_id, node_index)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS history_entries (
+            id                      TEXT PRIMARY KEY,
+            subject_type            TEXT NOT NULL,
+            subject_id              TEXT NOT NULL,
+            realm_instance_id       TEXT REFERENCES instances(id)
+                ON DELETE SET NULL,
+            timeline_instance_id    TEXT REFERENCES instances(id)
+                ON DELETE SET NULL,
+            story_when              TEXT NOT NULL DEFAULT '@unknown',
+            node_index              INTEGER,
+            verb                    TEXT NOT NULL DEFAULT 'record',
+            note                    TEXT NOT NULL DEFAULT '',
+            created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_history_subject "
+        "ON history_entries(subject_type, subject_id, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_history_timeline "
+        "ON history_entries(timeline_instance_id, node_index)"
+    )
+
 
 def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
     row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()

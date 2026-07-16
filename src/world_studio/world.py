@@ -1271,6 +1271,124 @@ class World:
             (q, q, q),
         ).fetchall()
 
+    # ── Timeline nodes + material history (story when) ─────────────────
+
+    def ensure_timeline_node(
+        self,
+        timeline_instance_id: str,
+        node_index: int,
+        *,
+        name: str = "",
+        description: str = "",
+    ) -> str:
+        """Ensure numbered node exists on a timeline instance; return node row id."""
+        if node_index < 0:
+            raise ValueError("node_index must be >= 0")
+        tl = self.get_instance(timeline_instance_id)
+        if tl is None or (tl.ven_kind or "").lower() != "timeline":
+            raise ValueError("timeline_instance_id must be a timeline instance")
+        row = self.conn.execute(
+            """
+            SELECT id FROM timeline_nodes
+            WHERE timeline_instance_id = ? AND node_index = ?
+            """,
+            (timeline_instance_id, node_index),
+        ).fetchone()
+        if row:
+            return row["id"]
+        nid = new_id("tnode")
+        self.conn.execute(
+            """
+            INSERT INTO timeline_nodes(
+                id, timeline_instance_id, node_index, name, description
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (nid, timeline_instance_id, node_index, name or "", description or ""),
+        )
+        self.conn.commit()
+        return nid
+
+    def list_timeline_nodes(self, timeline_instance_id: str) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """
+            SELECT * FROM timeline_nodes
+            WHERE timeline_instance_id = ?
+            ORDER BY node_index
+            """,
+            (timeline_instance_id,),
+        ).fetchall()
+
+    def record_history(
+        self,
+        subject_type: str,
+        subject_id: str,
+        *,
+        verb: str = "record",
+        story_when: str = "@unknown",
+        node_index: int | None = None,
+        realm_instance_id: str | None = None,
+        timeline_instance_id: str | None = None,
+        note: str = "",
+    ) -> str:
+        """
+        Append a story-when history row for a ven / instance / lore id.
+
+        story_when is ``@N`` or ``@unknown``. When node_index is set and a
+        timeline is known, the node row is ensured.
+        """
+        if subject_type not in ("ven", "instance", "lore"):
+            raise ValueError("subject_type must be ven, instance, or lore")
+        sw = (story_when or "@unknown").strip() or "@unknown"
+        if not sw.startswith("@"):
+            sw = f"@{sw}"
+        if sw.lower() == "@unknown":
+            sw = "@unknown"
+            node_index = None
+        elif node_index is None and sw[1:].isdigit():
+            node_index = int(sw[1:])
+            sw = f"@{node_index}"
+        if (
+            node_index is not None
+            and timeline_instance_id
+            and sw != "@unknown"
+        ):
+            self.ensure_timeline_node(timeline_instance_id, node_index)
+        hid = new_id("hist")
+        self.conn.execute(
+            """
+            INSERT INTO history_entries(
+                id, subject_type, subject_id,
+                realm_instance_id, timeline_instance_id,
+                story_when, node_index, verb, note
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                hid,
+                subject_type,
+                subject_id,
+                realm_instance_id,
+                timeline_instance_id,
+                sw,
+                node_index,
+                (verb or "record").strip() or "record",
+                note or "",
+            ),
+        )
+        self.conn.commit()
+        return hid
+
+    def history_for(
+        self, subject_type: str, subject_id: str
+    ) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            """
+            SELECT * FROM history_entries
+            WHERE subject_type = ? AND subject_id = ?
+            ORDER BY created_at
+            """,
+            (subject_type, subject_id),
+        ).fetchall()
+
     # ── Text editor save history (<< / <<studio) ─────────────────────────
 
     def add_text_revision(

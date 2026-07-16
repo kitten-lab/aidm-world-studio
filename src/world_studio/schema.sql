@@ -172,3 +172,39 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Timeline story-time nodes (numbered notches along a timeline instance)
+CREATE TABLE IF NOT EXISTS timeline_nodes (
+    id                      TEXT PRIMARY KEY,
+    timeline_instance_id    TEXT NOT NULL REFERENCES instances(id) ON DELETE CASCADE,
+    node_index              INTEGER NOT NULL,
+    name                    TEXT NOT NULL DEFAULT '',
+    description             TEXT NOT NULL DEFAULT '',
+    created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (timeline_instance_id, node_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_timeline_nodes_tl
+    ON timeline_nodes(timeline_instance_id, node_index);
+
+-- Story-when history for materials (life of ven / instance / lore)
+CREATE TABLE IF NOT EXISTS history_entries (
+    id                      TEXT PRIMARY KEY,
+    subject_type            TEXT NOT NULL,
+    -- ven | instance | lore
+    subject_id              TEXT NOT NULL,
+    realm_instance_id       TEXT REFERENCES instances(id) ON DELETE SET NULL,
+    timeline_instance_id    TEXT REFERENCES instances(id) ON DELETE SET NULL,
+    story_when              TEXT NOT NULL DEFAULT '@unknown',
+    -- @0, @3, @unknown
+    node_index              INTEGER,
+    verb                    TEXT NOT NULL DEFAULT 'record',
+    note                    TEXT NOT NULL DEFAULT '',
+    created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_history_subject
+    ON history_entries(subject_type, subject_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_history_timeline
+    ON history_entries(timeline_instance_id, node_index);
+

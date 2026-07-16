@@ -167,59 +167,81 @@ World Studio today is largely **current state**:
 
 ## History design (next foundation theme)
 
-**Name:** **history** — not “journal.”
+**Name:** **history** — not “journal.”  
+**Stance (2026-07-16 refine):** Prefer a **simple spine** over live time-play, locked bags on every node, or visit mode first. Do not overbuild fold/cursor/lock until this backbone exists.
 
-### Intent
+### Intent (thin)
 
-- Organized record of change over time (even if not fully *shown* in UI at first).  
-- **Room states** as history points (cosmology: “timeline points”).  
-- **Visit** prior points: **view only** — look / examine-type; **no** take, put, go, dig, @desc.  
-- **Cannot edit the past** — only open a viewport and leave back to present.  
-- **Manual snapshots** preferred over logging every footstep / every position.
+1. **Node positions** along a **timeline** (and with **realm**) — numbered notches for story order.  
+2. **Creation / edit tooling** can take a **story when** = that node (e.g. `when @3` or bound to current authoring node).  
+3. That when is stored on the material’s **history for the life of the item** (instance or prime, as appropriate).  
+4. If story when is unknown: store **`@unknown`** *in relation to* the realm/timeline the act belongs to — never pretend craft `created_at` is story time.  
+5. **Bags / visit / fold** stay later optional tools, not the floorboard.
 
-### Collision: multiverse `timeline` vs history point
+**Not required for v0:** active play with nodes moving, auto event-VEN on name, room bag on every node, edit-locked past plates.
+
+### Two clocks (always)
+
+| Clock | Meaning |
+|-------|---------|
+| **Craft time** | When the builder typed / the row was written (`created_at`) |
+| **Story when** | Node on (realm, timeline), or **`@unknown`** on that strand |
+
+### Nodes
+
+- **Numbered** along a timeline strand (0, 1, 2, …).  
+- Optional **name** / **@desc** on a node later — nice; not required to create the backbone.  
+- Naming a node does **not** have to spawn an event VEN (promote later if needed).  
+- Subdivision (1.5 between 1 and 2) — later if needed.
+
+### What spawn / create / lore / etc. store
+
+On produce or relevant edit, record something like:
+
+```text
+realm_id / timeline_id   (strand — already familiar as layers)
+story_when               node N  |  @unknown
+crafted_at               wall clock
+```
+
+- Explicit `when @N` → node N on the **current** (or specified) timeline.  
+- Omitted → **`@unknown`** on that realm/timeline (honest gap).  
+- Mythic free text (“Cow Jump night”) can remain a **label** on a node or lore; the **structural** when is node or unknown.
+
+### History journal (life of the item)
+
+Thin log rows on instances (and optionally primes): “this material entered / was authored / was marked **@N** (or @unknown) on strand R/T.”  
+Room **bags** are **not** required for this. Bags help later if you want to **revisit stage pictures** or adjust a beat; they are not the first foundation.
+
+### Bags / visit / event VEN (deferred)
+
+| Tool | Role (later) |
+|------|----------------|
+| Room bag | Optional freeze of place contents at a craft moment or node |
+| Visit | Viewport of a bag — not required for story-when backbone |
+| Event VEN | First-class occurrence; may **cite** a node; not every when |
+
+### Collision: multiverse `timeline` layer vs history
 
 | Term | Meaning |
 |------|---------|
 | **timeline** (coords) | Multiverse layer on instances (already in studio) |
-| **history point** | Frozen **room** state on a place’s history spine (preferred command language) |
-| “timeline point” | OK in myth/docs; avoid as primary CLI name |
-
-### Two uses of the same base tool
-
-| Use | Focus |
-|-----|--------|
-| **Room history / snapshots** | Place as node viewport on the past |
-| **Item history** | Path of one instance over time (same spine, different lens) |
-
-### Snapshots
-
-- **Created manually** (builder marks a moment).  
-- Nodes along the past — **viewports**, not live branches.  
-- **Future** timeline splits may come from turning a snap into a *new* present — later, explicit.  
-- v1 scope: **room-local** (desc + contents bag at mark time), not full-world freeze.
-
-### Optional event log vs manual snaps
-
-- Product *feel*: you choose when a state is worth keeping.  
-- A thin event log may help Forestry later; it is not “record everything.”  
-- Talk → lore asymmetry with desc remains a fix target once history exists.
+| **node** | Ordered notch **along** that timeline |
+| **@unknown** | On that strand, story position not set |
+| **history** | Record of story_when (+ craft time) on materials over their life |
 
 ### Forestry waist (when ready)
 
 ```text
-mutation / manual snap → history point (+ optional event rows)
-        → (optional) lore / event VEN
-        → (later) decay, gossip, crates
+create/edit → history row (realm, timeline, node|@unknown, craft time)
+           → (later) bags, event VENs, decay, gossip
 ```
 
-### Implementation order (when coding — not yet)
+### Implementation order
 
-1. Store + manual mark history points (room)  
-2. List + read-only visit (look/examine only)  
-3. Item-history lens  
-4. Optional event log for Forestry  
-5. No AIDM consumer; no edit-past; no silent restore-as-present  
+1. **Shipped (thin backbone):** nodes + `history_entries`; create/spawn/lore `when @N` / `@unknown`; `history nodes|here|on|ven`  
+2. Optional: current authoring node shown on look/where  
+3. Later: bags, visit, event promote, fold  
 
 ---
 
@@ -231,22 +253,24 @@ mutation / manual snap → history point (+ optional event rows)
 - Collapse Pocket Internet into World Studio  
 - Require phone logs rescued before next feature  
 - Expand ontology (new roots) to fake history  
-- Use `timeline` as the history-point command name  
+- Live time-play with moving nodes as the first history feature  
+- Require every node to be a full room bag  
+- Use craft `created_at` as if it were story when  
 
 ---
 
 ## Open threads (parallel — not pick-one)
 
-Keep these alive; any can be deepened without killing the others:
-
-1. **History** — mark UX, snapshot payload, item vs room, visit chrome  
-2. **Lore / when-types / event-ref** — mythic vs calendar vs VEN moment  
+1. **History backbone** — node store, `@N` / `@unknown`, life-of-item history rows  
+2. **Lore / when display** — always show craft vs story when  
 3. **Desc ↔ lore phasing** — promote, not only replace  
 4. **Silo / maker / seed / Disney timelines** — import graph  
 5. **Chester archetypes** — how they land as primes in studio  
 6. **Ship worlds** — which core seeds belong in the studio spine  
 7. **Archive salvage** — phone JSON + `z/logs` indexing when ready  
 8. **Naming** — product “World Studio” vs repo `aidm-world-studio` vs ADM field  
+9. **Bags / visit** — deferred until backbone exists  
+10. **Look/where** — show authoring node or only on demand 
 
 ---
 
@@ -260,15 +284,12 @@ Keep these alive; any can be deepened without killing the others:
 
 ## Decisions / details still open (feedback welcome)
 
-When you have energy, any of these help — none blocks the others:
-
-- [ ] Exact command names you *like* (`history mark`, `history visit`, …) vs what to avoid  
-- [ ] Whether **manual snap only** is strict for v1, or “manual + optional thin event log”  
-- [ ] What **item history** must show first (places visited? containers? last mover?)  
-- [ ] Whether **visit** should freeze the player in-place (viewport overlay) vs a special “ghost look”  
-- [ ] How loud “you are viewing the past” should be in chrome  
-- [ ] Preferred public product title string (World Studio / ADM World Studio / other) while repo stays as-is  
+- [ ] Default when spawn/create omits `@N` → always `@unknown`, or inherit “current authoring node” if set  
+- [ ] Nodes scoped **per timeline instance** vs one global sequence  
+- [ ] History rows on **instance only** vs also on prime  
+- [ ] Whether look/where shows story node in v0 or only `history` / examine  
+- [ ] Preferred public product title vs repo name  
 
 ---
 
-*Promoted from Builds architecture discussion into repo so it cannot vanish with a chat export.*
+*Promoted from Builds architecture discussion into repo so it cannot vanish with a chat export. History section simplified 2026-07-16: nodes + @when / @unknown first; bags/visit later.*
