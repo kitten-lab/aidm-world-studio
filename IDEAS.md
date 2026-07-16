@@ -3,7 +3,9 @@
 Living list of half-finished concepts and polish intents for **AIDM World Studio**.  
 Review occasionally; promote an item only when it beats “expand the engine again.”
 
-**Current product stance:** stop expanding; perfect tool use. Prefer display, look sheets, help surfaces, word choice, and interaction clarity over new VEN kinds or systems.
+**Larger product map (Silo / ADM / AIDM / Forestry / history):** see [docs/product-map.md](docs/product-map.md) — durable doctrine in-repo so it is not lost in chat.
+
+**Current product stance:** stop expanding; perfect tool use. Prefer display, look sheets, help surfaces, word choice, and interaction clarity over new VEN kinds or systems. History/snaps (see product map) is the next *foundation* theme when leaving pure polish.
 
 ---
 
