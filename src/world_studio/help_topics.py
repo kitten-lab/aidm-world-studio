@@ -678,6 +678,25 @@ def _init_topics() -> None:
             ),
             fmt.section("Current place"),
             fmt.example_line("lore", "List revisions for this place"),
+            fmt.section("Flags (free order)"),
+            fmt.example_line(
+                "lore -a -t Founding -b Raised for travelers. -w 0",
+                "-a add · -t title · -b body · -w when",
+            ),
+            fmt.example_line(
+                'lore --add --on me -n Note -d "Soft light." --when 1',
+                "Target with --on; -d same as -b",
+            ),
+            fmt.example_line(
+                "lore on cartographer -a -t Whisper -b Heard at dusk.",
+                "Instance then flags",
+            ),
+            fmt.hint(
+                "-a/--add required for flag form. "
+                "Title: -t/-n · Body: -b/-d · When: -w. "
+                "Prose lore add … still works."
+            ),
+            fmt.section("Prose (still works)"),
             fmt.example_line(
                 "lore add Founding | Raised for market travelers.",
                 "Title | body  (title optional)",
@@ -893,11 +912,26 @@ def _init_topics() -> None:
                 "place you stand in. Use @desc on <match> for any instance "
                 "(thing, person, folio, …) without elevating it to a new VEN. "
                 "Clear removes the instance override so the prime VEN text returns. "
+                "Edits do not write material history until you @desc commit "
+                "(optional when @N) — then a desc history row, text-log snapshot, "
+                "and a lore entry with the full description text. "
                 "Use \\n for line breaks, or @desc << multiline ended with a lone ."
             ),
             fmt.section("Current place"),
             fmt.example_line("@desc", "Show current place description"),
             fmt.example_line("@desc Soft light on unfinished canvases."),
+            fmt.example_line(
+                "@desc commit",
+                "Stamp current desc into history (edit freely first)",
+            ),
+            fmt.example_line(
+                "@desc commit when @2",
+                "Same with story when",
+            ),
+            fmt.example_line(
+                "@desc commit on me",
+                "Commit instance desc (avatar, item, …)",
+            ),
             fmt.example_line(
                 r"@desc First line.\nSecond line.",
                 "Line breaks via \\n",
@@ -1077,7 +1111,7 @@ def _init_topics() -> None:
             ),
             fmt.section("Then instance"),
             fmt.example_line(
-                "spawn --ven field-notes --as Ritual Notes --when 0",
+                "spawn --ven field-notes -n Ritual Notes --when 0",
                 "See help spawn",
             ),
             fmt.section("Old words still work"),
@@ -1107,7 +1141,7 @@ def _init_topics() -> None:
                 "Preferred flags (any order)",
             ),
             fmt.example_line(
-                "spawn --ven quill --as Pocket Quill --when 2",
+                "spawn quill -> Pocket Quill --when 2",
                 "Instance + place receive · HST-…",
             ),
             fmt.example_line(
@@ -1179,20 +1213,24 @@ def _init_topics() -> None:
             ),
             fmt.section("Pattern (flags — free order)"),
             fmt.example_line(
-                "spawn --ven field-notes --as Ritual Notes --when 2",
+                "spawn --ven field-notes -n Ritual Notes --when 2",
                 "Prime · lived title · story node",
             ),
             fmt.example_line(
-                "spawn --ven field-notes -a Pocket Notes -w 0",
-                "-a short for --as (title also: -n / --name)",
+                "spawn --ven field-notes -n Pocket Notes -w 0",
+                "-n / --name / --title for lived name",
             ),
-            fmt.section("Legacy (still works)"),
+            fmt.section("Prose title (as or ->)"),
             fmt.example_line(
                 "spawn <prime> as Title when @2",
-                "Lived copy · story when",
+                "Sentence-style as",
             ),
             fmt.example_line(
-                "/s <prime> as Title",
+                "spawn <prime> -> Title when @2",
+                "Arrow form (same as as)",
+            ),
+            fmt.example_line(
+                "/s <prime> -> Title",
                 "Maker shorthand",
             ),
             fmt.example_line(
@@ -1225,8 +1263,12 @@ def _init_topics() -> None:
             fmt.section("Usage"),
             fmt.example_line("rename pocket as Travel Notes"),
             fmt.example_line(
+                "rename me -> Ada",
+                "Arrow form (same as word as)",
+            ),
+            fmt.example_line(
                 "rename me as Danyi",
-                "Avatar · history on me: rename Builder → Danyi",
+                "Sentence-style as · history: Builder → Danyi",
             ),
             fmt.example_line("rename field-notes inv as Pack Journal"),
             fmt.example_line("call field-notes#FIELD-NOTES-0001 as First Copy"),

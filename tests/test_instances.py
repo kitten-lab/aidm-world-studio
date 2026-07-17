@@ -185,6 +185,15 @@ class InstanceIdentityTests(unittest.TestCase):
         listed = plain(dispatch(self.world, "instances field-notes").message)
         self.assertIn("Travel Notes", listed)
 
+    def test_rename_arrow_title(self) -> None:
+        dispatch(self.world, "spawn field-notes as Pocket Notes")
+        r = dispatch(self.world, "rename pocket -> Field Journal")
+        self.assertTrue(r.ok, msg=r.message)
+        self.assertIn("Field Journal", plain(r.message))
+        r2 = dispatch(self.world, "rename field → Pack Notes")
+        self.assertTrue(r2.ok, msg=r2.message)
+        self.assertIn("Pack Notes", plain(r2.message))
+
     def test_rename_here_place(self) -> None:
         loc = self.world.player_location()
         assert loc is not None

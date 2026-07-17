@@ -44,9 +44,22 @@ def peel_story_when_suffix(text: str) -> tuple[str, str, int | None]:
     """
     Strip trailing ``when @N`` / ``when @unknown`` from a command tail.
 
+    Also accepts a tail that is *only* ``when @N`` (no leading space).
+
     Returns (remaining_text, story_when, node_index).
     """
     s = text or ""
+    only = re.match(
+        r"^when\s+@(?P<body>\d+|unknown)\s*$",
+        s.strip(),
+        re.IGNORECASE,
+    )
+    if only:
+        body = only.group("body").lower()
+        if body == "unknown":
+            return "", "@unknown", None
+        n = int(body)
+        return "", f"@{n}", n
     m = _STORY_WHEN_SUFFIX_RE.search(s)
     if not m:
         return s.strip(), "@unknown", None

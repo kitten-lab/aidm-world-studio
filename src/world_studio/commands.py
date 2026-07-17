@@ -18,7 +18,7 @@ from .dialog import (
     person_inner_kinds,
 )
 from .help_topics import render_help_index, render_help_topic
-from .ids import cute_name, display_name, parse_resolve_query
+from .ids import cute_name, display_name, parse_resolve_query, split_as_title
 from .textutil import unescape_desc
 from .world import (
     CONTAINMENT_SLOTS,
@@ -1809,21 +1809,17 @@ def _dialogs_set_when(world: World, rest: str) -> str:
 
 def _dialogs_rename(world: World, rest: str) -> str:
     """
-    dialogs rename <n|slug|title> as <new title>
-    dialogs title <n|id|title> as <new title>
+    dialogs rename <n|slug|title> as|-> <new title>
+    dialogs title <n|id|title> as|-> <new title>
     """
     rest = rest.strip()
-    if not rest or " as " not in rest.lower():
+    split = split_as_title(rest)
+    if not split:
         return fmt.hint(
             "Usage: dialogs rename <n|slug|title> as <new title>  "
-            "·  e.g. dialogs rename 1 as Better Title"
+            "·  dialogs rename 1 -> Better Title"
         )
-    idx = rest.lower().rfind(" as ")
-    query, new_title = rest[:idx].strip(), rest[idx + 4 :].strip()
-    if not query or not new_title:
-        return fmt.hint(
-            "Usage: dialogs rename <n|slug|title> as <new title>"
-        )
+    query, new_title = split
     row = world.find_dialog(query, place_instance_id=_dialog_place_id(world))
     if row is None:
         return fmt.err(f"No dialog matching {query!r}.  Try: dialogs  ·  dialogs all")
@@ -3082,23 +3078,143 @@ def _lore_on_instance(world: World, rest: str) -> str:
     return _format_lore_rows(heading, rows)
 
 
+def _lore_add_flags(world: World, arg: str) -> str:
+    """
+    Flag form for new lore entries::
+
+      lore -a -t Founding -b Raised for travelers. -w 0
+      lore --add --on cartographer -n Note -d Soft light. --when 1
+      lore on quill -a -t Note -b Bent nib.
+
+    -a / --add is required. Title: -t/-n/--title/--name.
+    Body: -b/--body or -d/--desc. When: -w/--when.
+    Target: --on <match>, or leading ``on <match>`` before flags.
+    """
+    from .argflags import LORE_FLAG_ALIASES, parse_named_flags, story_when_from_flag
+    from .studio_text import prepare_stored_text
+
+    raw = (arg or "").strip()
+    # lore on <match> -a …
+    if raw.lower().startswith("on "):
+        thing, rest, err = _split_instance_target_and_rest(world, raw[3:])
+        if err or thing is None:
+            return err or fmt.hint(
+                "Usage: lore on <match> -a -t <title> -b <body> [-w N]"
+            )
+        target_inst = thing
+        flag_src = rest
+    else:
+        target_inst = None
+        flag_src = raw
+
+    parsed = parse_named_flags(flag_src, aliases=LORE_FLAG_ALIASES)
+    if parsed.error:
+        return fmt.err(parsed.error)
+    if "add" not in parsed.flags:
+        return fmt.hint(
+            "Lore flags need -a / --add to create an entry.\n"
+            "  lore -a -t Founding -b Raised for travelers. -w 0\n"
+            "  lore --add --on me -n Note -d Soft light.\n"
+            "  Prose still works: lore add Title | body"
+        )
+    title = (parsed.get("name") or "").strip()
+    body = (parsed.get("body") or parsed.get("desc") or "").strip()
+    if not body and parsed.positionals:
+        body = " ".join(parsed.positionals).strip()
+    if not body:
+        return fmt.hint(
+            "Usage: lore -a -t <title> -b <body> [-w N]\n"
+            "  Body required (-b / --body / -d / --desc)."
+        )
+    body = prepare_stored_text(unescape_desc(body), studio=False)
+    title = unescape_desc(title) if title else ""
+
+    story_when = "@unknown"
+    node_index: int | None = None
+    when_label: str | None = None
+    if "when" in parsed.flags:
+        story_when, node_index = story_when_from_flag(parsed.get("when"))
+        if story_when != "@unknown":
+            when_label = story_when
+        elif (parsed.get("when") or "").strip():
+            # freeform mythic stamp
+            when_label = parsed.get("when").strip()
+            story_when, node_index = _story_when_for_lore_label(when_label)
+
+    # Target: --on, resolved on-prefix, or current place
+    if target_inst is None:
+        on_q = parsed.get("on")
+        if on_q:
+            thing, err = _resolve_instance_target(world, on_q)
+            if err or thing is None:
+                return err or fmt.err(f"No match for {on_q!r}.")
+            target_inst = thing
+        else:
+            loc = world.player_location()
+            if not loc:
+                return fmt.hint("Nowhere.")
+            target_inst = loc
+
+    subject_type = "instance"
+    subject_id = target_inst.id
+    lid = world.add_lore(
+        subject_type,
+        subject_id,
+        body=body,
+        title=title,
+        timeline_instance_id=target_inst.timeline_instance_id,
+        when_label=when_label,
+        author="builder",
+    )
+    world.undo_stack.push(
+        f"lore add {display_name(target_inst.name)}",
+        lambda w, lid=lid: w.delete_lore(lid),
+    )
+    _record_subject_history(
+        world,
+        "lore",
+        lid,
+        verb="lore",
+        story_when=story_when,
+        node_index=node_index,
+        note=title or display_name(target_inst.name),
+        realm_instance_id=target_inst.realm_instance_id,
+        timeline_instance_id=target_inst.timeline_instance_id,
+    )
+    ref = world.short_ref_of(target_inst.id)
+    stamp_note = f"  ·  {when_label}" if when_label else ""
+    return fmt.ok(
+        f"Lore · {fmt.named_ref(display_name(target_inst.name), ref)}  ·  "
+        f"{lid}{stamp_note}  ·  story {story_when}"
+    )
+
+
 def _lore(world: World, arg: str) -> str:
     """
     Place instance (default):
       lore
       lore add [when <stamp> | | @stamp |] [title |] body
+      lore -a -t Title -b body [-w N]
       lore add from <book> <page>:<line> [| title]
       lore search <q>
 
     Any instance (item/person/place copy — no elevate required):
       lore on <match>
       lore on <match> add [when … |] [title |] body
+      lore on <match> -a -t … -b …
+      lore --add --on <match> …
 
     Prime VEN:
       lore ven <slug-or-name>
       lore ven <slug-or-name> add [when … |] [title |] body
     """
+    from .argflags import looks_like_flag_command
+
     arg = arg.strip()
+
+    # Flag form (free order): lore -a …  ·  lore on x -a …
+    if looks_like_flag_command(arg):
+        return _lore_add_flags(world, arg)
 
     # Shorthand: lore realm … → lore on realm …
     low0 = arg.lower()
@@ -3611,18 +3727,152 @@ def _apply_desc_payload(
     return fmt.ok(msg)
 
 
+def _desc_commit(
+    world: World,
+    target: InstanceView,
+    *,
+    story_when: str,
+    node_index: int | None,
+) -> str:
+    """
+    Snapshot current description into material history (+ text log body).
+
+    Edits stay free; only commit stamps life-of-item history.
+    """
+    from .studio_text import is_studio, strip_studio_header
+
+    tid = target.id
+    tname = display_name(target.name)
+    ref = world.short_ref_of(tid)
+    body = target.description if target.description is not None else ""
+    plain_body = strip_studio_header(body) if is_studio(body) else body
+    plain_body = (plain_body or "").strip()
+    nlines = len(plain_body.splitlines()) if plain_body else 0
+    nchars = len(plain_body)
+    first = plain_body.splitlines()[0].strip() if plain_body else ""
+    if len(first) > 48:
+        first = first[:45] + "…"
+    preview = first or "(empty)"
+    note = f"{nlines} line(s) · {nchars} ch · {preview}"
+
+    # Full body in text revisions so commit is restorable via text show/restore
+    from .studio_text import detect_format
+
+    fmt_name, _ = detect_format(body) if body else ("plain", "")
+    world.add_text_revision(
+        "instance",
+        tid,
+        body if body is not None else "",
+        field="description",
+        title=tname,
+        format=fmt_name if fmt_name in ("plain", "studio") else "plain",
+        author="builder",
+        note=f"@desc commit story {story_when}",
+    )
+
+    # Readable copy in lore (instance lore list) — plain text, not studio chrome
+    lore_id: str | None = None
+    if plain_body:
+        lore_title = (
+            f"Desc {story_when}"
+            if story_when and story_when != "@unknown"
+            else "Desc commit"
+        )
+        when_label = (
+            story_when
+            if story_when and story_when != "@unknown"
+            else None
+        )
+        lore_id = world.add_lore(
+            "instance",
+            tid,
+            body=plain_body,
+            title=lore_title,
+            timeline_instance_id=target.timeline_instance_id,
+            when_label=when_label,
+            author="builder",
+        )
+        # Lore life-row (same story when); shares a separate HST from desc act
+        _record_subject_history(
+            world,
+            "lore",
+            lore_id,
+            verb="lore",
+            story_when=story_when,
+            node_index=node_index,
+            note=lore_title,
+            realm_instance_id=target.realm_instance_id,
+            timeline_instance_id=target.timeline_instance_id,
+        )
+
+    event_code = _record_subject_history(
+        world,
+        "instance",
+        tid,
+        verb="desc",
+        story_when=story_when,
+        node_index=node_index,
+        note=note if not lore_id else f"{note}  ·  lore {lore_id}",
+    )
+    bits = [
+        f"Desc committed · {fmt.named_ref(tname, ref)}",
+        f"story {story_when}",
+        event_code,
+        f"{nlines} line(s)",
+    ]
+    if lore_id:
+        bits.append(f"lore {lore_id}")
+    return fmt.ok("  ·  ".join(bits))
+
+
 def _desc(world: World, arg: str) -> str:
     """
     @desc                  — show current place description
     @desc <text>           — replace place (\\n for line breaks)
     @desc + / ++ / clear   — append / clear place override
+    @desc commit [when @N] — stamp current place desc into history
 
     Any instance (no elevate required):
     @desc on <match>              — show that instance's description
     @desc on <match> <text>       — set override on that instance
     @desc on <match> + / ++ / clear
+    @desc commit on <match> [when @N]
     """
+    from .story_when import peel_when_anywhere
+
     raw = arg.strip()
+
+    # ── commit current face into history (edit freely, then commit) ─────
+    low = raw.lower()
+    if low == "commit" or low.startswith("commit "):
+        rest = raw[6:].strip() if low.startswith("commit") else ""
+        rest, story_when, node_index = peel_when_anywhere(rest)
+        rest_low = rest.lower()
+        if rest_low.startswith("on "):
+            thing, more, err = _split_instance_target_and_rest(world, rest[3:])
+            if err or thing is None:
+                return err or fmt.hint(
+                    "Usage: @desc commit on <item|person|place> [when @N]"
+                )
+            if (more or "").strip():
+                return fmt.hint(
+                    "Usage: @desc commit on <match> [when @N | --when 0]\n"
+                    "  Edit with @desc first; commit only stamps history."
+                )
+            return _desc_commit(
+                world, thing, story_when=story_when, node_index=node_index
+            )
+        if rest:
+            return fmt.hint(
+                "Usage: @desc commit [when @N]  ·  @desc commit on <match> [when @N]\n"
+                "  Current place if no on <match>."
+            )
+        loc = world.player_location()
+        if not loc:
+            return fmt.hint("Nowhere.")
+        return _desc_commit(
+            world, loc, story_when=story_when, node_index=node_index
+        )
 
     # ── instance target ─────────────────────────────────────────────────
     if raw.lower().startswith("on "):
@@ -3646,8 +3896,8 @@ def _desc(world: World, arg: str) -> str:
             shown,
             fmt.hint(
                 "@desc <text>  ·  @desc studio | **bold**  ·  "
-                "@desc + / ++ / clear  ·  @desc on <item> …  ·  "
-                "@desc <<studio multiline  ·  help studio-text"
+                "@desc + / ++ / clear  ·  @desc commit  ·  "
+                "@desc on <item> …  ·  @desc <<studio  ·  help studio-text"
             ),
             gap=1,
         )
@@ -4353,17 +4603,17 @@ def _create(world: World, arg: str) -> str:
 def _spawn_usage() -> str:
     return (
         "Usage (flags, free order):\n"
-        "  spawn --ven field-notes --as Ritual Notes --when 2\n"
-        "  Short: -a / --as title  ·  -n also title  ·  -w when  ·  --when unknown\n"
-        "Legacy: spawn <ven> [as <title>] [when @N]\n"
-        "  Places: create place Room  ·  spawn room as Kitchen  ·  link …"
+        "  spawn --ven field-notes -n Ritual Notes --when 2\n"
+        "  Short: -n / --name / --title  ·  -w when\n"
+        "Prose: spawn <ven> as <title>  ·  spawn <ven> -> <title> [when @N]\n"
+        "  Places: create place Room  ·  spawn room -> Kitchen  ·  link …"
     )
 
 
 def _spawn(world: World, arg: str) -> str:
     """
-    spawn --ven <prime> [--as <title>] [--when N]
-    spawn <ven> [as <title>] [when @N]
+    spawn --ven <prime> [-n|--name|--title <title>] [--when N]
+    spawn <ven> [as|-> <title>] [when @N]
 
     Things land in the current place. Places spawn free-standing (link after).
     """
@@ -4387,8 +4637,8 @@ def _spawn(world: World, arg: str) -> str:
         if parsed.error:
             return fmt.err(parsed.error)
         target = parsed.get("ven")
-        # --as title, or --name title (same idea as create --name)
-        name_override = parsed.get("as") or parsed.get("name") or None
+        # Lived title: -n / --name / --title (not -a — reserved for add)
+        name_override = parsed.get("name") or None
         if not target and parsed.positionals:
             target = parsed.positionals[0]
         if not name_override and len(parsed.positionals) >= 2:
@@ -4400,9 +4650,9 @@ def _spawn(world: World, arg: str) -> str:
     else:
         arg, story_when, node_index = peel_story_when_suffix(arg)
         name_override = None
-        if " as " in arg.lower():
-            idx = arg.lower().rfind(" as ")
-            target, name_override = arg[:idx].strip(), arg[idx + 4 :].strip()
+        split = split_as_title(arg)
+        if split:
+            target, name_override = split
         else:
             target = arg.strip()
     ven = world.find_ven(target)
@@ -4569,24 +4819,22 @@ def _resolve_rename_target(
 
 
 def _rename(world: World, arg: str) -> str:
-    """rename <match|here|me|place> as <new title> [when @N]  ·  call …"""
+    """rename <match|here|me|place> as|-> <new title> [when @N]  ·  call …"""
     from .story_when import peel_when_anywhere
 
-    if " as " not in arg.lower():
-        return fmt.hint(
-            "Usage: rename <thing|me|here|place name> as <new title> "
-            "[when @N | --when 0]\n"
-            "  You: rename me as Ada  ·  Prime: vens rename Builder as Ada"
-        )
+    usage = (
+        "Usage: rename <thing|me|here|place name> as <new title> "
+        "[when @N | --when 0]\n"
+        "  Also: rename me -> Ada  ·  rename pocket → Travel Notes\n"
+        "  Prime: vens rename Builder as Ada"
+    )
+    if not (arg or "").strip():
+        return fmt.hint(usage)
     arg, story_when, node_index = peel_when_anywhere(arg)
-    idx = arg.lower().rfind(" as ")
-    if idx < 0:
-        return fmt.hint(
-            "Usage: rename <thing|me|here|place name> as <new title>"
-        )
-    match, new_title = arg[:idx].strip(), arg[idx + 4 :].strip()
-    if not match or not new_title:
-        return fmt.hint("Usage: rename <thing|here|place name> as <new title>")
+    split = split_as_title(arg)
+    if not split:
+        return fmt.hint(usage)
+    match, new_title = split
     thing, err = _resolve_rename_target(world, match)
     if err:
         return err
@@ -4951,14 +5199,17 @@ def _put(world: World, arg: str) -> str:
 
 def _elevate(world: World, arg: str) -> str:
     if not arg:
-        return fmt.hint("Usage: elevate <thing> [as <new prime name>]")
+        return fmt.hint(
+            "Usage: elevate <thing> [as <new prime name>]  ·  "
+            "elevate <thing> -> <new prime name>"
+        )
     prime_name = None
     target = arg.strip()
-    if " as " in arg.lower():
-        idx = arg.lower().rfind(" as ")
-        target, prime_name = arg[:idx].strip(), arg[idx + 4 :].strip()
+    split = split_as_title(arg)
+    if split:
+        target, prime_name = split
         if not prime_name:
-            return fmt.hint("Usage: elevate <thing> [as <new prime name>]")
+            return fmt.hint("Usage: elevate <thing> [as|-> <new prime name>]")
     thing = world.resolve_here_named(target)
     if not thing:
         # allow unique global name
