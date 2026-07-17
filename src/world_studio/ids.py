@@ -108,6 +108,36 @@ def new_id(prefix: str = "") -> str:
     return f"{prefix}_{u}" if prefix else u
 
 
+def split_as_title(text: str) -> tuple[str, str] | None:
+    """
+    Split ``<left> as <title>`` or ``<left> -> <title>`` (also ``→``).
+
+    Word ``as`` stays for sentence-style writing; arrow is the compact form.
+    No flag form (``-a`` / ``--as``) — those are reserved for add elsewhere.
+    Uses the rightmost separator. Returns (left, title) or None.
+    """
+    s = (text or "").strip()
+    if not s:
+        return None
+    best = -1
+    seplen = 0
+    low = s.lower()
+    i = low.rfind(" as ")
+    if i >= 0:
+        best, seplen = i, 4
+    for sep in (" -> ", " → ", "->", "→"):
+        j = s.rfind(sep)
+        if j > best:
+            best, seplen = j, len(sep)
+    if best < 0:
+        return None
+    left = s[:best].strip()
+    right = s[best + seplen :].strip()
+    if left and right:
+        return left, right
+    return None
+
+
 def cute_name(name: str) -> str:
     """Normalize human input into attractive ALL-CAPS dash form.
 

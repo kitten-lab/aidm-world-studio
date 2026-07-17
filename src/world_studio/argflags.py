@@ -18,17 +18,26 @@ _FLAG_ALIASES: dict[str, str] = {
     "desc": "desc",
     "description": "desc",
     "d": "desc",
+    "body": "body",
+    "b": "body",
     "when": "when",
     "w": "when",
     "of": "of",
     "parent": "of",
-    "as": "as",
-    "a": "as",
-    "title": "as",
+    # Title for create/spawn maps to name; lore also reads name as title.
+    "title": "name",
     "ven": "ven",
     "prime": "ven",
     "from": "ven",
+    # -a / --add = insert into collection (lore, leaf later). No value required.
+    "add": "add",
+    "a": "add",
+    # lore target: --on cartographer
+    "on": "on",
 }
+
+# Presence-only flags (no value; stored as "1")
+_BOOLEAN_FLAGS = frozenset({"add"})
 
 
 @dataclass
@@ -51,12 +60,40 @@ def looks_like_flag_command(text: str) -> bool:
     return bool(_FLAG_START.search(text or ""))
 
 
-def parse_named_flags(text: str) -> NamedFlags:
+# Lore create: -t is title (not create's type); -d/-b body; -a add
+LORE_FLAG_ALIASES: dict[str, str] = {
+    "add": "add",
+    "a": "add",
+    "title": "name",
+    "t": "name",
+    "name": "name",
+    "n": "name",
+    "body": "body",
+    "b": "body",
+    "desc": "body",
+    "description": "body",
+    "d": "body",
+    "when": "when",
+    "w": "when",
+    "on": "on",
+}
+
+
+def parse_named_flags(
+    text: str,
+    *,
+    aliases: dict[str, str] | None = None,
+    boolean_flags: frozenset[str] | None = None,
+) -> NamedFlags:
     """
     Parse ``--key value``, ``--key=value``, ``-k value`` (single-letter).
 
     Values may be quoted. Order of flags does not matter.
+    *aliases* overrides the default create/spawn map (e.g. lore uses
+    :data:`LORE_FLAG_ALIASES` so ``-t`` is title not type).
     """
+    table = aliases if aliases is not None else _FLAG_ALIASES
+    bools = boolean_flags if boolean_flags is not None else _BOOLEAN_FLAGS
     raw = (text or "").strip()
     if not raw:
         return NamedFlags()
@@ -66,7 +103,7 @@ def parse_named_flags(text: str) -> NamedFlags:
         return NamedFlags(error=f"Could not parse flags: {e}")
 
     def take_value(start: int) -> tuple[str, int]:
-        """Value runs until next flag token (so --as Hiking Stick works)."""
+        """Value runs until next flag token (so multi-word titles work)."""
         if start >= len(tokens):
             return "", start
         parts: list[str] = []
@@ -87,16 +124,20 @@ def parse_named_flags(text: str) -> NamedFlags:
                 return NamedFlags(error="Empty flag --")
             if "=" in body:
                 key, _, val = body.partition("=")
-                canon = _FLAG_ALIASES.get(key.lower())
+                canon = table.get(key.lower())
                 if not canon:
                     return NamedFlags(error=f"Unknown flag --{key}")
                 flags[canon] = val
                 i += 1
                 continue
-            canon = _FLAG_ALIASES.get(body.lower())
+            canon = table.get(body.lower())
             if not canon:
                 return NamedFlags(error=f"Unknown flag --{body}")
             if i + 1 >= len(tokens) or tokens[i + 1].startswith("-"):
+                if canon in bools:
+                    flags[canon] = "1"
+                    i += 1
+                    continue
                 return NamedFlags(error=f"Flag --{body} needs a value")
             val, i = take_value(i + 1)
             flags[canon] = val
@@ -104,10 +145,14 @@ def parse_named_flags(text: str) -> NamedFlags:
         if tok.startswith("-") and len(tok) >= 2 and tok[1].isalpha():
             letters = tok[1:]
             if len(letters) == 1:
-                canon = _FLAG_ALIASES.get(letters.lower())
+                canon = table.get(letters.lower())
                 if not canon:
                     return NamedFlags(error=f"Unknown flag -{letters}")
                 if i + 1 >= len(tokens) or tokens[i + 1].startswith("-"):
+                    if canon in bools:
+                        flags[canon] = "1"
+                        i += 1
+                        continue
                     return NamedFlags(error=f"Flag -{letters} needs a value")
                 val, i = take_value(i + 1)
                 flags[canon] = val

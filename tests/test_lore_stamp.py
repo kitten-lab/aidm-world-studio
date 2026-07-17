@@ -169,6 +169,62 @@ class LoreStampDispatchTests(unittest.TestCase):
         self.assertTrue(hit[0]["created_at"])
 
 
+class LoreFlagAddTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.world = _world()
+
+    def test_place_flag_add(self) -> None:
+        r = dispatch(
+            self.world,
+            "lore -a -t Founding -b Raised for travelers. -w 0",
+        )
+        self.assertTrue(r.ok, msg=r.message)
+        self.assertIn("@0", plain(r.message))
+        loc = self.world.player_location()
+        assert loc is not None
+        hit = [
+            x
+            for x in self.world.lore_for("instance", loc.id)
+            if x["title"] == "Founding"
+        ]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["body"], "Raised for travelers.")
+        self.assertEqual(hit[0]["when_label"], "@0")
+
+    def test_on_me_flag_add(self) -> None:
+        r = dispatch(
+            self.world,
+            'lore --add --on me -n Whisper -d Soft light. --when 2',
+        )
+        self.assertTrue(r.ok, msg=r.message)
+        pid = self.world.player_id()
+        assert pid
+        hit = [
+            x
+            for x in self.world.lore_for("instance", pid)
+            if x["title"] == "Whisper"
+        ]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["body"], "Soft light.")
+        self.assertEqual(hit[0]["when_label"], "@2")
+
+    def test_on_prefix_then_flags(self) -> None:
+        r = dispatch(
+            self.world,
+            "lore on me -a -t Note -b Bent nib.",
+        )
+        self.assertTrue(r.ok, msg=r.message)
+        pid = self.world.player_id()
+        assert pid
+        hit = [
+            x
+            for x in self.world.lore_for("instance", pid)
+            if x["title"] == "Note"
+        ]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["body"], "Bent nib.")
+
+
 class BookLineRefParseTests(unittest.TestCase):
     def test_parse_variants(self) -> None:
         self.assertEqual(parse_book_line_ref("1:2"), (1, 2))

@@ -75,6 +75,41 @@ class DescCommandTests(unittest.TestCase):
         # VEN default returns
         self.assertIn("half-inked", loc.description.lower())
 
+    def test_desc_commit_records_history(self) -> None:
+        loc = self.world.player_location()
+        assert loc is not None
+        self.assertTrue(
+            dispatch(self.world, "@desc Soft dusk on the boards.").ok
+        )
+        # Edit alone does not write material history
+        before = self.world.history_for("instance", loc.id)
+        n_desc = sum(1 for h in before if h["verb"] == "desc")
+        r = dispatch(self.world, "@desc commit when @3")
+        self.assertTrue(r.ok, msg=r.message)
+        self.assertIn("committed", plain(r.message).lower())
+        self.assertIn("HST-", plain(r.message))
+        after = self.world.history_for("instance", loc.id)
+        desc_rows = [h for h in after if h["verb"] == "desc"]
+        self.assertEqual(len(desc_rows), n_desc + 1)
+        self.assertEqual(desc_rows[-1]["story_when"], "@3")
+        self.assertIn("Soft dusk", desc_rows[-1]["note"] or "")
+        listed = plain(dispatch(self.world, "history here").message)
+        self.assertIn("desc", listed.lower())
+        self.assertIn("@3", listed)
+        # Full body in text log
+        revs = self.world.list_text_revisions(
+            "instance", loc.id, field="description"
+        )
+        self.assertGreaterEqual(len(revs), 1)
+        self.assertIn("Soft dusk", revs[-1]["body"] or "")
+        # Full body also as instance lore
+        lore_rows = self.world.lore_for("instance", loc.id)
+        self.assertTrue(
+            any("Soft dusk" in (r["body"] or "") for r in lore_rows),
+            msg=str([dict(r) for r in lore_rows]),
+        )
+        self.assertIn("lore", plain(r.message).lower())
+
 
 if __name__ == "__main__":
     unittest.main()

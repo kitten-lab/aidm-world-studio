@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from world_studio.argflags import (
+    LORE_FLAG_ALIASES,
     looks_like_flag_command,
     parse_named_flags,
     story_when_from_flag,
@@ -40,6 +41,21 @@ class FlagParseTests(unittest.TestCase):
         self.assertEqual(story_when_from_flag("@2"), ("@2", 2))
         self.assertEqual(story_when_from_flag("unknown"), ("@unknown", None))
 
+    def test_boolean_add_and_lore_aliases(self) -> None:
+        p = parse_named_flags(
+            "-a -t Founding -b Raised for travelers. -w 0",
+            aliases=LORE_FLAG_ALIASES,
+        )
+        self.assertIsNone(p.error)
+        self.assertEqual(p.get("add"), "1")
+        self.assertEqual(p.get("name"), "Founding")
+        self.assertEqual(p.get("body"), "Raised for travelers.")
+        self.assertEqual(p.get("when"), "0")
+        # create/spawn: -t is still type
+        c = parse_named_flags("-t thing -n Stick")
+        self.assertEqual(c.get("type"), "thing")
+        self.assertEqual(c.get("name"), "Stick")
+
 
 class FlagCreateSpawnTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -72,17 +88,17 @@ class FlagCreateSpawnTests(unittest.TestCase):
         )
         r = dispatch(
             self.world,
-            "spawn --ven stick --as Hiking Stick --when 3",
+            "spawn --ven stick -n Hiking Stick --when 3",
         )
         self.assertTrue(r.ok, msg=r.message)
         self.assertIn("@3", plain(r.message))
         self.assertIn("Hiking Stick", plain(r.message))
 
-    def test_spawn_short_as_flag(self) -> None:
+    def test_spawn_arrow_title(self) -> None:
         self.assertTrue(
             dispatch(self.world, "create --type thing --name Twig --desc dry.").ok
         )
-        r = dispatch(self.world, "spawn --ven twig -a Walking Twig -w 1")
+        r = dispatch(self.world, "spawn twig -> Walking Twig when @1")
         self.assertTrue(r.ok, msg=r.message)
         self.assertIn("Walking Twig", plain(r.message))
         self.assertIn("@1", plain(r.message))
