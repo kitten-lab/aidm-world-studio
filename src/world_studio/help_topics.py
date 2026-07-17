@@ -11,7 +11,7 @@ from .world import KINDS
 _TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
     "look": ("look", "l"),
     "go": ("go", "g"),
-    "run": ("run",),
+    "run": ("run", "activate", "use"),
     "logout": ("logout", "logoff", "log-out"),
     "portal": ("portal",),
     "locate": ("locate", "status", "sit", "situation", "whereami", "where"),
@@ -37,7 +37,7 @@ _TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
     "instances": ("instances", "inst"),
     "history": ("history", "hist"),
     "retime": ("retime", "retimes", "when-set"),
-    "put": ("put",),
+    "put": ("put", "install"),
     "despawn": ("despawn", "lose", "reclaim", "lost"),
     "elevate": ("elevate",),
     "vens": ("vens", "ven", "export", "collector"),
@@ -81,7 +81,7 @@ _HELP_INDEX_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
         [
             ("look", "Describe the place you are in"),
             ("go", "Travel a path by label"),
-            ("run", "Enter a place via installed app portal (not paths)"),
+            ("run", "Enter app portal (aliases: activate, use)"),
             ("logout", "Leave a run session → where you entered from"),
             ("locate", "Where your avatar is (locate self); later: codes"),
             ("paths", "List paths from here (aliases: exits, ways, x)"),
@@ -94,7 +94,7 @@ _HELP_INDEX_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
             ("inv", "What you carry"),
             ("take / drop", "Pick up, take from <box>, or drop"),
             ("examine", "Detail a thing (aliases: exam, inspect, in)"),
-            ("put", "Into box, person, or nearby room via path"),
+            ("put", "Into box, person, or nearby room (alias: install)"),
             ("portal", "Bind thing → place world for run"),
         ],
     ),
@@ -321,6 +321,7 @@ def _init_topics() -> None:
             "run",
             _p(
                 "Travel into a real place through an installed object (app, cartridge, tape…). "
+                "activate and use are aliases for run. "
                 "The destination is a normal place (dig place/app … or place/storybook …) — "
                 "not a UI layer. Portals do not list under paths; examine the device to find them."
             ),
@@ -330,8 +331,12 @@ def _init_topics() -> None:
                 "Explicit: app inside that container",
             ),
             fmt.example_line(
-                "run mail",
-                "Soft: OK if exactly one installed Mail is in reach",
+                "activate mail from terminal",
+                "Same as run",
+            ),
+            fmt.example_line(
+                "use mail",
+                "Same as run (soft resolve)",
             ),
             fmt.example_line(
                 "run kat-moire",
@@ -340,11 +345,11 @@ def _init_topics() -> None:
             fmt.section("Setup"),
             fmt.example_line("dig place/app Mailroom | Soft list light."),
             fmt.example_line("create thing/app Mail | Inbox that never sleeps."),
-            fmt.example_line("spawn mail  ·  put mail in terminal"),
+            fmt.example_line("spawn mail  ·  install mail in terminal"),
             fmt.example_line("portal mail -> Mailroom"),
             fmt.hint(
                 "Not installed: app on the floor or loose in inv — "
-                "put it in a device first."
+                "install / put it in a device first."
             ),
             fmt.hint("Ambiguous: run <app> from <device>"),
             fmt.hint("Leave with logout (returns to where you ran from, not a room exit)."),
@@ -1252,6 +1257,7 @@ def _init_topics() -> None:
             "put",
             _p(
                 "Move a nearby or carried thing into a container, person, or nearby place. "
+                "install is an alias for put (handy for apps into devices before run). "
                 "Adjacent paths count as present: put into a path label or neighboring place name "
                 "without picking the thing up first (works for people and things). "
                 "Putting sense or person/archetype into a person auto-uses "
@@ -1262,6 +1268,10 @@ def _init_topics() -> None:
             ),
             fmt.section("Usage"),
             fmt.example_line("put SILVER-THREAD in BOX"),
+            fmt.example_line(
+                "install mail in terminal",
+                "Same as put (run-friendly wording)",
+            ),
             fmt.example_line(
                 "put hope in cartographer when @1",
                 "History on hope + receive on cartographer",

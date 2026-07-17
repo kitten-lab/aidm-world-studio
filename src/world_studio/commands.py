@@ -97,7 +97,7 @@ def dispatch(world: World, line: str) -> CommandResult:
             return CommandResult(True, _map(world, arg))
         if cmd in ("go", "g"):
             return _go(world, arg)
-        if cmd == "run":
+        if cmd in ("run", "activate", "use"):
             return _run(world, arg)
         if cmd in ("logout", "logoff", "log-out"):
             return _logout(world, arg)
@@ -149,7 +149,7 @@ def dispatch(world: World, line: str) -> CommandResult:
             return CommandResult(True, _history(world, arg))
         if cmd in ("retime", "retimes", "when-set"):
             return CommandResult(True, _retime(world, arg))
-        if cmd == "put":
+        if cmd in ("put", "install"):
             return CommandResult(True, _put(world, arg))
         if cmd in ("despawn", "lose"):
             return CommandResult(True, _despawn(world, arg))
