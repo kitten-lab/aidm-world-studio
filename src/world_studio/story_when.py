@@ -100,20 +100,26 @@ def format_history_line(
     event_code: str = "",
     place_name: str | None = None,
 ) -> str:
-    """Plain one-line summary for history lists."""
+    """
+    Two-line history entry for narrow (≈72) columns.
+
+    Line 1 — what: ``HST-004  ·  put  ·  into Keeper [interior]``
+    Line 2 — when/where meta (caller typically dims + indents)::
+
+        story @3  ·  Herenow  ·  Base / Start  ·  craft 2026-…
+    """
     p = (place_name or "").strip() or "—"
     r = (realm_name or "").strip() or "—"
     t = (timeline_name or "").strip() or "—"
-    code = (event_code or "").strip()
-    head = f"{code}  ·  " if code else ""
-    # Place first, then layer strand
-    where = f"{p}  ·  {r} / {t}"
-    base = (
-        f"{head}{crafted_at}  ·  {verb}  ·  story {story_when}  ·  {where}"
+    code = (event_code or "").strip() or "—"
+    event = (verb or "record").strip() or "record"
+    explain = (note or "").strip() or "—"
+    primary = f"{code}  ·  {event}  ·  {explain}"
+    meta = (
+        f"story {story_when or '@unknown'}  ·  {p}  ·  {r} / {t}  ·  "
+        f"craft {crafted_at or '—'}"
     )
-    if note:
-        return f"{base}  ·  {note}"
-    return base
+    return f"{primary}\n{meta}"
 
 
 def resolve_strand_for_record(

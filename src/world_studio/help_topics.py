@@ -48,7 +48,7 @@ _TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
     "realm": ("realm", "realms"),
     "undo": ("undo", "u"),
     "text": ("text", "textlog", "revisions"),
-    "clear": ("clear", "cls"),
+    "clear": ("clear", "clr"),
     "help": ("help", "?"),
     "quit": ("quit", "exit", "q"),
     "concepts": ("concepts", "ven", "vens-model", "model"),
@@ -999,7 +999,7 @@ def _init_topics() -> None:
             ),
             fmt.section("Usage"),
             fmt.example_line("clear"),
-            fmt.example_line("cls", "Alias"),
+            fmt.example_line("clr", "Alias"),
             fmt.section("On travel"),
             _p(
                 "A successful go / g also clears the log first, then shows the "

@@ -10,6 +10,7 @@ from world_studio.commands import dispatch
 from world_studio.db import connect
 from world_studio.format import plain
 from world_studio.story_when import (
+    format_history_line,
     normalize_story_when,
     peel_story_when_suffix,
     peel_when_anywhere,
@@ -51,6 +52,27 @@ class StoryWhenParseTests(unittest.TestCase):
         self.assertEqual(normalize_story_when("@0"), ("@0", 0))
         self.assertEqual(normalize_story_when("@unknown"), ("@unknown", None))
         self.assertEqual(normalize_story_when("Cow Jump"), ("@unknown", None))
+
+    def test_format_history_two_lines(self) -> None:
+        block = format_history_line(
+            verb="put",
+            story_when="@3",
+            crafted_at="2026-07-16 12:00:00",
+            place_name="Herenow",
+            realm_name="Base",
+            timeline_name="Start",
+            note="into Keeper [interior]",
+            event_code="HST-004",
+        )
+        primary, meta = block.split("\n", 1)
+        self.assertEqual(
+            primary, "HST-004  ·  put  ·  into Keeper [interior]"
+        )
+        self.assertIn("story @3", meta)
+        self.assertIn("Herenow", meta)
+        self.assertIn("Base / Start", meta)
+        self.assertIn("craft 2026-07-16", meta)
+        self.assertNotIn("put", meta)  # event stays on line 1
 
 
 class HistoryCommandTests(unittest.TestCase):

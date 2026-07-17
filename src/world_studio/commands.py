@@ -78,7 +78,7 @@ def dispatch(world: World, line: str) -> CommandResult:
     try:
         if cmd in ("quit", "exit", "q"):
             return CommandResult(True, fmt.hint("Until the next shelf."), quit=True)
-        if cmd in ("clear", "cls"):
+        if cmd in ("clear", "clr"):
             return CommandResult(
                 True,
                 fmt.hint(
@@ -4009,19 +4009,21 @@ def _history(world: World, arg: str) -> str:
                     r["subject_type"] or "instance", r["subject_id"] or ""
                 )
                 note = f"{sub}  ·  {note}" if note else sub
-            lines.append(
-                "  "
-                + format_history_line(
-                    verb=r["verb"] or "record",
-                    story_when=r["story_when"] or "@unknown",
-                    crafted_at=r["created_at"] or "—",
-                    place_name=pn,
-                    realm_name=rn,
-                    timeline_name=tn,
-                    note=note,
-                    event_code=r["event_code"] or "",
-                )
+            block = format_history_line(
+                verb=r["verb"] or "record",
+                story_when=r["story_when"] or "@unknown",
+                crafted_at=r["created_at"] or "—",
+                place_name=pn,
+                realm_name=rn,
+                timeline_name=tn,
+                note=note,
+                event_code=r["event_code"] or "",
             )
+            # Two lines: what happened · dimmed when/where (indented for lists)
+            primary, _, meta = block.partition("\n")
+            lines.append(f"  {primary}")
+            if meta:
+                lines.append(f"    {fmt.hint(meta)}")
         return "\n".join(lines)
 
     # Shared event lookup: history HST-001 · history event HST-001

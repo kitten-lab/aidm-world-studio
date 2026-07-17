@@ -1,4 +1,4 @@
-"""clear/cls and clear-on-go for session transcript."""
+"""clear/clr and clear-on-go for session transcript."""
 
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ class ClearCommandTests(unittest.TestCase):
     def setUp(self) -> None:
         self.world = _world()
 
-    def test_clear_and_cls_set_flag(self) -> None:
-        for cmd in ("clear", "cls"):
+    def test_clear_and_clr_set_flag(self) -> None:
+        for cmd in ("clear", "clr"):
             r = dispatch(self.world, cmd)
             self.assertTrue(r.ok, msg=r.message)
             self.assertTrue(r.clear_log, msg=cmd)
@@ -60,7 +60,7 @@ class ClearCommandTests(unittest.TestCase):
 
     def test_help_clear_resolves(self) -> None:
         self.assertEqual(resolve_topic("clear"), "clear")
-        self.assertEqual(resolve_topic("cls"), "clear")
+        self.assertEqual(resolve_topic("clr"), "clear")
         r = dispatch(self.world, "help clear")
         self.assertTrue(r.ok)
         text = plain(r.message).lower()
@@ -75,7 +75,7 @@ class ClearCliWiringTests(unittest.TestCase):
         self.assertIn("_clear_world_log", src)
         self.assertIn("log.clear()", src)
         self.assertIn("_clear_repl_screen", src)
-        # cls restores the same boot header as first load
+        # clr restores the same boot header as first load
         self.assertIn("_studio_boot_banner_markup", src)
         self.assertIn("_studio_boot_panel", src)
         clear_src = inspect.getsource(cli.StudioApp._clear_world_log) if hasattr(cli, "StudioApp") else inspect.getsource(cli.run_textual)
