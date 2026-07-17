@@ -75,6 +75,37 @@ class DescCommandTests(unittest.TestCase):
         # VEN default returns
         self.assertIn("half-inked", loc.description.lower())
 
+    def test_multiline_on_target_studio_no_name_leak(self) -> None:
+        """@desc on <name> <<studio must not glue name/studio into body."""
+        from world_studio.multiline_open import (
+            commit_multiline_session,
+            parse_multiline_opener,
+        )
+        from world_studio.studio_text import is_studio, strip_studio_header
+
+        self.assertTrue(
+            dispatch(
+                self.world, "create person The Castaway | A survivor."
+            ).ok
+        )
+        self.assertTrue(
+            dispatch(self.world, "spawn the-castaway as The Castaway").ok
+        )
+        sess = parse_multiline_opener("@desc on the castaway <<studio")
+        self.assertIsNotNone(sess)
+        assert sess is not None
+        self.assertTrue(sess.studio)
+        body = ":Design start: 2024-01-03\n\n**Hello**"
+        r = commit_multiline_session(self.world, sess, body)
+        self.assertTrue(r.ok, msg=r.message)
+        inst = self.world.resolve_here_named("castaway")
+        assert inst is not None
+        self.assertTrue(is_studio(inst.description))
+        plain_body = strip_studio_header(inst.description)
+        self.assertTrue(plain_body.startswith(":Design start:"))
+        self.assertNotIn("the castaway | studio", plain_body.lower())
+        self.assertNotIn("castaway | studio", plain_body.lower())
+
     def test_desc_commit_records_history(self) -> None:
         loc = self.world.player_location()
         assert loc is not None

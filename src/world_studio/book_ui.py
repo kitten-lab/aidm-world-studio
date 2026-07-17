@@ -129,14 +129,22 @@ def make_book_reader_screen(
         }}
         """
 
+        # Screen can take focus so keybindings keep working after nested studio
+        can_focus = True
+
         BINDINGS = [
             Binding("left", "prev", "Prev leaf", show=True, priority=True),
             Binding("right", "next", "Next leaf", show=True, priority=True),
             Binding("h", "prev", "Prev", show=False, priority=True),
+            Binding("H", "prev", "Prev", show=False, priority=True),
             Binding("l", "next", "Next", show=False, priority=True),
+            Binding("L", "next", "Next", show=False, priority=True),
             Binding("escape", "close", "Close", show=True, priority=True),
             Binding("q", "close", "Close", show=False, priority=True),
+            Binding("Q", "close", "Close", show=False, priority=True),
+            # Both cases: caps lock turns "e" into "E" (not the same binding)
             Binding("e", "edit_page", "Edit leaf", show=True, priority=True),
+            Binding("E", "edit_page", "Edit leaf", show=False, priority=True),
             # plus — deliberate add (not bare "a" / unshifted =)
             Binding("plus", "add_leaf", "Add leaf", show=True, priority=True),
         ]
@@ -145,6 +153,8 @@ def make_book_reader_screen(
             super().__init__()
             self._book_id = book_instance_id
             self._page_index = max(0, int(page_index))
+            # Prevent stacked studio screens / lost focus after many open/close
+            self._studio_open = False
 
         def compose(self) -> ComposeResult:
             with Vertical(id="book-reader"):
@@ -161,10 +171,34 @@ def make_book_reader_screen(
 
         def on_mount(self) -> None:
             self._refresh_view()
+            self._refocus_reader()
+
+        def _refocus_reader(self) -> None:
+            """Restore key focus after studio dismiss (nested modal focus bug)."""
+
+            def _go() -> None:
+                if not self.is_attached:
+                    return
+                try:
+                    scroll = self.query_one(
+                        "#book-reader-scroll", VerticalScroll
+                    )
+                    scroll.can_focus = True
+                    self.set_focus(scroll)
+                except Exception:  # noqa: BLE001
+                    try:
+                        self.focus()
+                    except Exception:  # noqa: BLE001
+                        pass
+                try:
+                    self.refresh_bindings()
+                except Exception:  # noqa: BLE001
+                    pass
+
             try:
-                self.query_one("#book-reader-scroll", VerticalScroll).focus()
+                self.call_after_refresh(_go)
             except Exception:  # noqa: BLE001
-                pass
+                _go()
 
         def _pages(self) -> list[Any]:
             return list(world.list_book_pages(self._book_id))
@@ -299,6 +333,10 @@ def make_book_reader_screen(
                 _push_book_page_title_body_undo,
             )
 
+            # Nested studio already open (or dismiss in flight) — ignore e spam
+            if self._studio_open:
+                return
+
             book = world.get_instance(self._book_id)
             if book is None:
                 self.notify("Book missing.", severity="error")
@@ -332,36 +370,56 @@ def make_book_reader_screen(
                 page_title=prior_title,
             )
 
-            def _on_edit_done(result: StudioBufferResult | None) -> None:
-                if result is None:
-                    self.notify("Edit cancelled.", severity="information")
-                    return
-                if not (result.body or "").strip():
-                    self.notify("Empty buffer — not saved.", severity="warning")
-                    return
-                new_title = (
-                    (result.page_title or "").strip()
-                    if result.page_title is not None
-                    else prior_title
-                )
-                new_body = prepare_stored_text(result.body, studio=True)
-                try:
-                    world.set_book_page_title(self._book_id, pos, new_title)
-                    world.set_book_page_body(self._book_id, pos, new_body)
-                except Exception as e:  # noqa: BLE001
-                    self.notify(f"Save failed: {e}", severity="error")
-                    return
-                if new_title != prior_title or new_body != prior_body:
-                    _push_book_page_title_body_undo(
-                        world,
-                        page_id,
-                        prior_title,
-                        prior_body,
-                        f"leaf edit {display_name(book.name)} {pos}",
-                    )
-                self.notify("Leaf saved.", severity="information")
-                self._refresh_view()
+            self._studio_open = True
 
-            self.app.push_screen(screen, _on_edit_done)
+            def _on_edit_done(result: StudioBufferResult | None) -> None:
+                try:
+                    if result is None:
+                        self.notify(
+                            "Edit cancelled.", severity="information"
+                        )
+                        return
+                    if not (result.body or "").strip():
+                        self.notify(
+                            "Empty buffer — not saved.", severity="warning"
+                        )
+                        return
+                    new_title = (
+                        (result.page_title or "").strip()
+                        if result.page_title is not None
+                        else prior_title
+                    )
+                    new_body = prepare_stored_text(result.body, studio=True)
+                    try:
+                        world.set_book_page_title(
+                            self._book_id, pos, new_title
+                        )
+                        world.set_book_page_body(
+                            self._book_id, pos, new_body
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        self.notify(f"Save failed: {e}", severity="error")
+                        return
+                    if new_title != prior_title or new_body != prior_body:
+                        _push_book_page_title_body_undo(
+                            world,
+                            page_id,
+                            prior_title,
+                            prior_body,
+                            f"leaf edit {display_name(book.name)} {pos}",
+                        )
+                    self.notify("Leaf saved.", severity="information")
+                    self._refresh_view()
+                finally:
+                    self._studio_open = False
+                    # Critical: nested modal leaves reader without focus → e dies
+                    self._refocus_reader()
+
+            try:
+                # push_screen lives on App (not Screen) in our Textual version
+                self.app.push_screen(screen, _on_edit_done)
+            except Exception:  # noqa: BLE001
+                self._studio_open = False
+                raise
 
     return BookReaderScreen()

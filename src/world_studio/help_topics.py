@@ -1295,7 +1295,10 @@ def _init_topics() -> None:
             ),
             fmt.example_line("history me", "See rename among other life rows"),
             fmt.hint("Aliases for current place: here, place, room, this, location"),
-            fmt.hint("Prime formal name: vens rename Builder as Ada (VEN, not instance)"),
+            fmt.hint(
+                "Prime formal name: vens rename Builder as Ada  ·  "
+                "vens rename Builder -> Ada (VEN, not instance)"
+            ),
             fmt.hint("undo restores the previous title"),
         ),
         "instances": _page(
@@ -1407,7 +1410,7 @@ def _init_topics() -> None:
             fmt.example_line("vens tree", "All specialization roots"),
             fmt.example_line("vens tree File", "Subtree under File"),
             fmt.example_line(
-                "vens rename Builder as Ada",
+                "vens rename Builder -> Ada",
                 "Rename a prime formal name (code stays; optional reslug)",
             ),
             fmt.section("Collector (export / import)"),

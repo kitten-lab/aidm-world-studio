@@ -361,41 +361,58 @@ def _fmt_studio(body: str, studio: bool) -> str:
 
 
 def _commit_desc(world, session: MultilineSession, body: str):
-    from .commands import CommandResult, dispatch
-    from .studio_text import is_studio
+    """
+    Apply editor body to place or ``@desc on <match>`` target.
 
-    rest = session.desc_rest.strip()
-    # Build one-line dispatch; newlines escaped for parsers that need it
-    from .textutil import escape_desc
+    Sets description directly (no one-line ``@desc … studio | …`` rebuild).
+    Round-tripping through dispatch was gluing ``on <name> studio |`` into the
+    body when the match name shared tokens with the payload.
+    """
+    from .commands import CommandResult
+    from . import format as fmt
+    from .ids import display_name
+    from .studio_text import is_studio, prepare_stored_text
 
-    esc = escape_desc(body)
-    if rest.lower().startswith("on "):
-        if session.studio:
-            line = f"@desc {rest} studio | {esc}"
-        else:
-            line = f"@desc {rest} {esc}"
-    else:
-        if session.studio:
-            line = f"@desc studio | {esc}"
-        else:
-            line = f"@desc {esc}"
-    result = dispatch(world, line)
-    # Revision on target instance
     inst = _desc_target(world, session)
-    if inst is not None and result.ok:
-        stored = inst.description or body
-        # re-fetch after set
-        fresh = world.get_instance(inst.id)
-        stored = (fresh.description if fresh else stored) or body
-        world.add_text_revision(
-            "instance",
-            inst.id,
-            stored,
-            field="description",
-            format="studio" if session.studio or is_studio(stored) else "plain",
-            note="editor save",
-        )
-    return result
+    if inst is None:
+        rest = session.desc_rest.strip()
+        if rest.lower().startswith("on "):
+            return CommandResult(
+                False,
+                fmt.err(
+                    f"No match for {rest[3:].strip()!r}.  "
+                    f"Try: examine / inv"
+                ),
+            )
+        return CommandResult(True, fmt.hint("Nowhere."))
+
+    prior = world.get_description_override(inst.id)
+    stored = prepare_stored_text(body, studio=bool(session.studio))
+    world.set_description(inst.id, stored)
+
+    tid = inst.id
+    world.undo_stack.push(
+        f"@desc {display_name(inst.name)}",
+        lambda w, iid=tid, p=prior: w.set_description(iid, p),
+    )
+
+    world.add_text_revision(
+        "instance",
+        tid,
+        stored,
+        field="description",
+        format="studio" if session.studio or is_studio(stored) else "plain",
+        note="editor save",
+    )
+
+    ref = world.short_ref_of(tid)
+    msg = (
+        f"Description updated · "
+        f"{fmt.named_ref(display_name(inst.name), ref)}"
+    )
+    if session.studio or is_studio(stored):
+        msg += "  ·  studio text"
+    return CommandResult(True, fmt.ok(msg))
 
 
 def _record_book_revision(world, session: MultilineSession, body: str) -> None:

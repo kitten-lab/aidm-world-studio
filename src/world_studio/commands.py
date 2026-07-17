@@ -1197,34 +1197,45 @@ def _format_contains_section(
     world: World,
 ) -> tuple[str | None, bool]:
     """
-    Contains block — same column neatness as look (name · kind · subtype · slot).
+    Contains block — same columns as look (name · kind · subtype · prime).
+
+    Default containment slot ``interior`` is omitted (noise). Non-default slots
+    (inventory, worn, sense, …) and portal-ready apps append a thin trailer.
     Returns (markup, had_runnable_portal).
     """
     if not items:
         return None, False
-    rows: list[tuple[str, str, str, str, str]] = []
+    # name, kind, sub, prime, color_kind, trailer (slot/run or "")
+    rows: list[tuple[str, str, str, str, str, str]] = []
     runnable = False
     for c in items:
-        name, kind, sub, _prime, color_kind = _presence_row(c)
+        name, kind, sub, prime, color_kind = _presence_row(c)
+        bits: list[str] = []
         slot_row = world.container_of(c.id)
-        slot = (slot_row[1] if slot_row else "") or "—"
+        slot = (slot_row[1] if slot_row else "") or ""
+        if slot and slot not in ("interior",):
+            bits.append(slot)
         if world.get_portal_to(c.id):
-            slot = f"{slot} · run"
+            bits.append("run")
             runnable = True
-        rows.append((name, kind, sub, slot, color_kind))
+        trailer = " · ".join(bits)
+        rows.append((name, kind, sub, prime, color_kind, trailer))
     w_name = max(len(r[0]) for r in rows)
     w_kind = max(len(r[1]) for r in rows)
     w_sub = max(len(r[2]) for r in rows)
-    w_slot = max(len(r[3]) for r in rows)
+    w_prime = max(len(r[3]) for r in rows)
     gap = "  "
     lines = [fmt.section("Contains")]
-    for name, kind, sub, slot, color_kind in rows:
-        lines.append(
+    for name, kind, sub, prime, color_kind, trailer in rows:
+        line = (
             f"  {fmt.colored_padded_name(name, color_kind, w_name)}{gap}"
             f"[dim]{fmt.safe(fmt.pad_visible(kind, w_kind))}[/dim]{gap}"
             f"[dim]{fmt.safe(fmt.pad_visible(sub, w_sub))}[/dim]{gap}"
-            f"[dim]{fmt.safe(fmt.pad_visible(slot, w_slot))}[/dim]"
+            f"[dim]{fmt.safe(fmt.pad_visible(prime, w_prime))}[/dim]"
         )
+        if trailer:
+            line += f"{gap}[dim]{fmt.safe(trailer)}[/dim]"
+        lines.append(line)
     return "\n".join(lines), runnable
 
 
@@ -5521,20 +5532,20 @@ def _vens_rename(world: World, arg: str) -> str:
     Rename a prime's formal name (e.g. Builder → your name).
 
     vens rename Builder as Ada
+    vens rename Builder -> Ada
     vens rename PER-001 as Ada reslug   # optional: refresh cute slug
     """
     raw = (arg or "").strip()
-    if " as " not in raw.lower():
+    split = split_as_title(raw)
+    if not split:
         return fmt.hint(
             "Usage: vens rename <prime> as <new name> [reslug]\n"
-            "  e.g. vens rename Builder as Ada\n"
+            "  also: vens rename <prime> -> <new name> [reslug]\n"
+            "  e.g. vens rename Builder -> Ada\n"
             "  renames the prime formal name; code stays put.  "
             "Optional reslug refreshes the cute slug."
         )
-    idx = raw.lower().rfind(" as ")
-    left, right = raw[:idx].strip(), raw[idx + 4 :].strip()
-    if not left or not right:
-        return fmt.hint("Usage: vens rename <prime> as <new name> [reslug]")
+    left, right = split
     reslug = False
     # trailing reslug / re-slug
     bits = right.rsplit(None, 1)
@@ -5542,6 +5553,10 @@ def _vens_rename(world: World, arg: str) -> str:
         new_name, reslug = bits[0].strip(), True
     else:
         new_name = right
+    if not left or not new_name:
+        return fmt.hint(
+            "Usage: vens rename <prime> as|-> <new name> [reslug]"
+        )
     ven = world.find_ven(left)
     if ven is None:
         return fmt.err(f"No prime matching {left!r}.  Try: vens")
