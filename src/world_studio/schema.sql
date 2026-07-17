@@ -193,8 +193,15 @@ CREATE TABLE IF NOT EXISTS history_entries (
     subject_type            TEXT NOT NULL,
     -- ven | instance | lore
     subject_id              TEXT NOT NULL,
+    -- Shared across all legs of one act (put + receive, take + give + receive)
+    event_code              TEXT NOT NULL DEFAULT '',
+    -- Where the act happened (place + layers); names snapshotted at craft time
+    place_instance_id       TEXT REFERENCES instances(id) ON DELETE SET NULL,
+    place_name              TEXT NOT NULL DEFAULT '',
     realm_instance_id       TEXT REFERENCES instances(id) ON DELETE SET NULL,
+    realm_name              TEXT NOT NULL DEFAULT '',
     timeline_instance_id    TEXT REFERENCES instances(id) ON DELETE SET NULL,
+    timeline_name           TEXT NOT NULL DEFAULT '',
     story_when              TEXT NOT NULL DEFAULT '@unknown',
     -- @0, @3, @unknown
     node_index              INTEGER,
@@ -207,4 +214,8 @@ CREATE INDEX IF NOT EXISTS idx_history_subject
     ON history_entries(subject_type, subject_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_history_timeline
     ON history_entries(timeline_instance_id, node_index);
+CREATE INDEX IF NOT EXISTS idx_history_event_code
+    ON history_entries(event_code);
+CREATE INDEX IF NOT EXISTS idx_history_place
+    ON history_entries(place_instance_id);
 

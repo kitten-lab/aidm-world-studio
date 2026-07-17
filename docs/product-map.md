@@ -201,14 +201,22 @@ Authoring the world’s past **from the craft present** is normal. The tool must
 **Stance:** simple spine — not live time-play, not bag-on-every-node, not visit-first.
 
 1. **Nodes** along a timeline instance (numbered 0, 1, 2, …; ensured when first referenced).  
-2. **`create` / `spawn` / `lore`** take trailing **`when @N`** or **`when @unknown`**.  
+2. **`create` / `spawn` / `lore`** take trailing **`when @N`** or **`when @unknown`** (flags: `--when`).  
 3. **Life-of-item rows** in `history_entries` (ven / instance / lore) with realm + timeline + story_when + craft time.  
-4. Omitted when → **`@unknown`** on the act’s strand.  
-5. Commands: **`history nodes`**, **`history here`**, **`history on <thing>`**, **`history ven <prime>`**.
+4. Omitted when → **`@unknown`** on the act’s strand (**not** the item’s create time).  
+5. Commands: **`history nodes`**, **`history here`**, **`history on <thing>`**, **`history ven <prime>`**.  
+6. **Movement history:** **`take` / `drop` / `put`** record on the moved instance always.  
+   - **put** / **take from** → vessel `receive` / `give`  
+   - **take** (floor) / **drop** → place + player (Builder)  
+   - **spawn** (non-place) → place `receive` on floor  
+   Optional **`when @N`** / **`--when N`**.  
+7. **Shared event codes (`HST-NNN`):** every leg of one act shares one code so hope’s put and the vessel’s receive are the same event. **`history HST-001`** lists all legs. Displayed on each history line.
 
-Code: `timeline_nodes`, `history_entries`, `story_when.py`, `help history`.
+Code: `timeline_nodes`, `history_entries.event_code`, `story_when.py`, `help history` / take / drop / put.
 
 Mythic free text on lore remains freeform; if the stamp is exactly `@3`, that counts as node for history rows.
+
+**Design note (when on moves):** each movement is its own craft row with its own `created_at`. Story when defaults to `@unknown` so a later take does not silently inherit spawn’s node. Pass `--when` / `when @N` when you mean a beat. **event_code** ties multi-subject rows without duplicating craft time.
 
 ---
 
@@ -274,7 +282,8 @@ Optional: node **name** + **@desc** as beat text (separate from room desc in the
 
 #### Event log of all mutations
 
-- Optional thin log (put/take/dig/…) as Forestry feed — **not** “mark every position.”  
+- **take / drop / put** already write life-of-item rows (item + vessel for put/take-from).  
+- Broader mutation log (dig, @desc, …) as Forestry feed remains optional later — **not** “mark every position.”  
 - Subordinate to story-when on materials + optional bags.
 
 #### Subdivision of nodes
@@ -284,11 +293,12 @@ Optional: node **name** + **@desc** as beat text (separate from room desc in the
 ### Relationship sketch (full stack, when ready)
 
 ```text
-create/spawn/lore → history_entries (realm, timeline, @N|@unknown, craft)
-                 → (later) room bags / visit
-                 → (later) event VEN cite node
-                 → (later) fold same place across layers
-                 → (later) decay, gossip, Forestry crates
+create/spawn/lore + take/drop/put → history_entries (realm, timeline, @N|@unknown, craft)
+                                 → put/take-from also → vessel receive/give
+                                 → (later) room bags / visit
+                                 → (later) event VEN cite node
+                                 → (later) fold same place across layers
+                                 → (later) decay, gossip, Forestry crates
 ```
 
 ---

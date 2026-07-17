@@ -79,6 +79,26 @@ def parse_ven_code(raw: str | None) -> str | None:
     return None
 
 
+def parse_history_event_code(raw: str | None) -> str | None:
+    """
+    Normalize a history event code to HST-NNN, or None.
+
+    Accepts hst-1, HST-001, hst001.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().upper().replace("_", "-")
+    if not s:
+        return None
+    m = re.fullmatch(r"HST-(\d{1,4})", s)
+    if m:
+        return format_ven_code("HST", int(m.group(1)))
+    m2 = re.fullmatch(r"HST(\d{1,4})", s)
+    if m2:
+        return format_ven_code("HST", int(m2.group(1)))
+    return None
+
+
 def is_ven_code(raw: str | None) -> bool:
     return parse_ven_code(raw) is not None
 

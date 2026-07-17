@@ -443,26 +443,34 @@ def _init_topics() -> None:
                 "Pick things up into inventory. From the floor: take <thing>. "
                 "From a box (on the floor or already in inventory): take <thing> from <box>. "
                 "You do not “go into” a carried box — open it with examine, then take from it. "
-                "get is an alias for take."
+                "get is an alias for take. "
+                "Each take writes movement history on the thing (and on the box for take from). "
+                "Optional story when: when @N or --when N (default @unknown — not create time)."
             ),
             fmt.section("Usage"),
-            fmt.example_line("take silver", "From the floor of this place"),
+            fmt.example_line("take silver", "From the floor · story @unknown"),
             fmt.example_line(
                 "take SILVER-THREAD from BOX",
                 "Out of a container you can reach",
             ),
-            fmt.example_line("get silver from box", "Same as take … from …"),
+            fmt.example_line(
+                "take hope from keeper when @2",
+                "Story node on hope + give on keeper",
+            ),
+            fmt.example_line("get silver from box --when 0", "Flag form"),
             fmt.example_line("examine box", "See what is inside before taking"),
-            fmt.example_line("inv", "Shows carried boxes and what they hold"),
+            fmt.example_line("history on silver", "Life of the instance"),
         ),
         "drop": _page(
             "drop",
             _p(
                 "Drop something from your inventory onto the current place. "
-                "Only top-level carried items (to free something nested, take it from the box first)."
+                "Only top-level carried items (to free something nested, take it from the box first). "
+                "Records drop history on the thing. Optional when @N / --when N (default @unknown)."
             ),
             fmt.section("Usage"),
             fmt.example_line("drop silver"),
+            fmt.example_line("drop silver --when 1", "Story when on the drop"),
             fmt.example_line("drop box", "Box keeps its contents when dropped"),
         ),
         "examine": _page(
@@ -1069,8 +1077,12 @@ def _init_topics() -> None:
             "history",
             _p(
                 "Story when along a timeline: numbered nodes (@0, @1, …) or @unknown. "
-                "Craft time is always stored separately. "
-                "Prefer create/spawn flags: --when 0. Legacy: when @0. "
+                "Craft time is always stored separately on each row. "
+                "Each act gets a shared event code (HST-001, …) so put on hope and "
+                "receive on the vessel show the same code. "
+                "Create/spawn/lore and movement (take / drop / put) write life-of-item rows. "
+                "Spawn onto the floor also records on the place; take/drop also on you "
+                "and the room. Prefer --when 0; trailing when @0 also works. "
                 "Not the multiverse timeline layer command — this is material history."
             ),
             fmt.section("Pattern"),
@@ -1080,11 +1092,15 @@ def _init_topics() -> None:
             ),
             fmt.example_line(
                 "spawn --ven quill --as Pocket Quill --when 2",
-                "Instance history @2",
+                "Instance + place receive · HST-…",
             ),
             fmt.example_line(
-                "create thing Quill | Soft. when @2",
-                "Legacy still works",
+                "put hope in keeper when @3",
+                "Shared HST on hope + keeper",
+            ),
+            fmt.example_line(
+                "take hope from keeper --when 4",
+                "take · give · receive (you)",
             ),
             fmt.example_line(
                 "lore add Note | Body. when @0",
@@ -1092,12 +1108,15 @@ def _init_topics() -> None:
             ),
             fmt.section("List"),
             fmt.example_line("history nodes", "Nodes on this place's timeline"),
-            fmt.example_line("history here", "This place instance"),
-            fmt.example_line("history on quill", "One instance"),
+            fmt.example_line("history here", "This place (spawns + drops + puts)"),
+            fmt.example_line("history me", "You (Builder) — takes, drops, puts"),
+            fmt.example_line("history on hope", "One instance (spawn + moves)"),
+            fmt.example_line("history HST-003", "All legs of one event"),
             fmt.example_line("history ven Quill", "Prime VEN"),
             fmt.hint(
-                "Omitted when → @unknown on realm/timeline of the act. "
-                "Bags/visit later — not this command."
+                "Omitted when → @unknown (not the item's create time). "
+                "Each act gets its own craft timestamp + shared HST code. "
+                "Bags/visit later."
             ),
         ),
         "spawn": _page(
@@ -1151,26 +1170,28 @@ def _init_topics() -> None:
             "rename",
             _p(
                 "Change an instance display title (name override) without elevating a new prime. "
-                "Works on things here/in inv, the place you stand in, or any place by name."
+                "Works on things here/in inv, the place you stand in, or any place by name. "
+                "Writes a rename history row on that instance (shared HST code; optional when @N)."
             ),
             fmt.section("Usage"),
             fmt.example_line("rename pocket as Travel Notes"),
+            fmt.example_line(
+                "rename me as Danyi",
+                "Avatar · history on me: rename Builder → Danyi",
+            ),
             fmt.example_line("rename field-notes inv as Pack Journal"),
             fmt.example_line("call field-notes#FIELD-NOTES-0001 as First Copy"),
             fmt.example_line(
-                "rename here as Quiet Gallery",
-                "Retitle the place you are in",
-            ),
-            fmt.example_line(
-                "rename me as Ada",
-                "Retitle your avatar instance (me / self / player)",
+                "rename here as Quiet Gallery when @1",
+                "Retitle this place · story @1",
             ),
             fmt.example_line(
                 "rename Side Alcove as Memory Nook",
                 "Retitle any place instance by name",
             ),
+            fmt.example_line("history me", "See rename among other life rows"),
             fmt.hint("Aliases for current place: here, place, room, this, location"),
-            fmt.hint("Prime formal name: vens rename Builder as Ada"),
+            fmt.hint("Prime formal name: vens rename Builder as Ada (VEN, not instance)"),
             fmt.hint("undo restores the previous title"),
         ),
         "instances": _page(
@@ -1191,10 +1212,16 @@ def _init_topics() -> None:
                 "without picking the thing up first (works for people and things). "
                 "Putting sense or person/archetype into a person auto-uses "
                 "the matching inner-life slot (Inner life on examine). "
+                "Writes put history on the thing and receive on the vessel. "
+                "Optional when @N / --when N (default @unknown). "
                 "From a box later: take <thing> from <container>."
             ),
             fmt.section("Usage"),
             fmt.example_line("put SILVER-THREAD in BOX"),
+            fmt.example_line(
+                "put hope in cartographer when @1",
+                "History on hope + receive on cartographer",
+            ),
             fmt.example_line(
                 "put Distant Thunder in The Archivist sense",
                 "Or bare: put Distant Thunder in Archivist",
@@ -1204,8 +1231,8 @@ def _init_topics() -> None:
                 "Auto slot=sense → Inner life",
             ),
             fmt.example_line(
-                "put silver in north",
-                "Into the place through that path (no inventory hop)",
+                "put silver in north --when 0",
+                "Into the place through that path",
             ),
             fmt.example_line(
                 "put Archivist into Side Alcove",
@@ -1216,6 +1243,7 @@ def _init_topics() -> None:
                 "Onto the floor of this place (from inv or a box)",
             ),
             fmt.example_line("take SILVER-THREAD from BOX", "Retrieve later"),
+            fmt.example_line("history on hope", "Movement trail for one instance"),
             fmt.hint(
                 "Slots: interior inventory worn sense archetype "
                 "(legacy: feeling goal desire purpose memory motif event)"

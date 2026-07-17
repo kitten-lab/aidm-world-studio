@@ -1318,6 +1318,24 @@ class World:
             (timeline_instance_id,),
         ).fetchall()
 
+    def next_history_event_code(self) -> str:
+        """Allocate the next shared history event code (HST-001, …)."""
+        from .ids import format_ven_code
+
+        max_n = 0
+        for r in self.conn.execute(
+            "SELECT event_code FROM history_entries "
+            "WHERE event_code GLOB 'HST-[0-9]*'"
+        ).fetchall():
+            code = (r["event_code"] or "").strip().upper()
+            if not code.startswith("HST-"):
+                continue
+            try:
+                max_n = max(max_n, int(code.split("-", 1)[1]))
+            except ValueError:
+                pass
+        return format_ven_code("HST", max_n + 1)
+
     def record_history(
         self,
         subject_type: str,
@@ -1326,15 +1344,26 @@ class World:
         verb: str = "record",
         story_when: str = "@unknown",
         node_index: int | None = None,
+        place_instance_id: str | None = None,
+        place_name: str = "",
         realm_instance_id: str | None = None,
+        realm_name: str = "",
         timeline_instance_id: str | None = None,
+        timeline_name: str = "",
         note: str = "",
+        event_code: str | None = None,
+        commit: bool = True,
     ) -> str:
         """
         Append a story-when history row for a ven / instance / lore id.
 
         story_when is ``@N`` or ``@unknown``. When node_index is set and a
         timeline is known, the node row is ensured.
+
+        Place / realm / timeline ids and display names are stored with the row
+        (names snapshotted at craft time). *event_code* is shared across all
+        legs of one logical act. If omitted, a new HST-NNN code is allocated.
+        Returns the history row id.
         """
         if subject_type not in ("ven", "instance", "lore"):
             raise ValueError("subject_type must be ven, instance, or lore")
@@ -1353,29 +1382,90 @@ class World:
             and sw != "@unknown"
         ):
             self.ensure_timeline_node(timeline_instance_id, node_index)
+        code = (event_code or "").strip().upper() or self.next_history_event_code()
         hid = new_id("hist")
         self.conn.execute(
             """
             INSERT INTO history_entries(
-                id, subject_type, subject_id,
-                realm_instance_id, timeline_instance_id,
+                id, subject_type, subject_id, event_code,
+                place_instance_id, place_name,
+                realm_instance_id, realm_name,
+                timeline_instance_id, timeline_name,
                 story_when, node_index, verb, note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 hid,
                 subject_type,
                 subject_id,
+                code,
+                place_instance_id,
+                place_name or "",
                 realm_instance_id,
+                realm_name or "",
                 timeline_instance_id,
+                timeline_name or "",
                 sw,
                 node_index,
                 (verb or "record").strip() or "record",
                 note or "",
             ),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return hid
+
+    def record_history_event(
+        self,
+        legs: list[dict],
+        *,
+        story_when: str = "@unknown",
+        node_index: int | None = None,
+        place_instance_id: str | None = None,
+        place_name: str = "",
+        realm_instance_id: str | None = None,
+        realm_name: str = "",
+        timeline_instance_id: str | None = None,
+        timeline_name: str = "",
+        event_code: str | None = None,
+    ) -> str:
+        """
+        Write one or more history legs that share a single event_code.
+
+        Each leg dict: subject_type, subject_id, verb, note (optional),
+        optional place/realm/timeline id or name overrides.
+        Returns the shared event_code.
+        """
+        if not legs:
+            raise ValueError("record_history_event needs at least one leg")
+        code = (event_code or "").strip().upper() or self.next_history_event_code()
+        for leg in legs:
+            st = leg["subject_type"]
+            sid = leg["subject_id"]
+            self.record_history(
+                st,
+                sid,
+                verb=leg.get("verb") or "record",
+                story_when=story_when,
+                node_index=node_index,
+                place_instance_id=leg.get(
+                    "place_instance_id", place_instance_id
+                ),
+                place_name=leg.get("place_name", place_name) or "",
+                realm_instance_id=leg.get(
+                    "realm_instance_id", realm_instance_id
+                ),
+                realm_name=leg.get("realm_name", realm_name) or "",
+                timeline_instance_id=leg.get(
+                    "timeline_instance_id", timeline_instance_id
+                ),
+                timeline_name=leg.get("timeline_name", timeline_name) or "",
+                note=leg.get("note") or "",
+                event_code=code,
+                commit=False,
+            )
+        self.conn.commit()
+        return code
 
     def history_for(
         self, subject_type: str, subject_id: str
@@ -1387,6 +1477,19 @@ class World:
             ORDER BY created_at
             """,
             (subject_type, subject_id),
+        ).fetchall()
+
+    def history_for_event(self, event_code: str) -> list[sqlite3.Row]:
+        code = (event_code or "").strip().upper()
+        if not code:
+            return []
+        return self.conn.execute(
+            """
+            SELECT * FROM history_entries
+            WHERE upper(event_code) = ?
+            ORDER BY created_at, id
+            """,
+            (code,),
         ).fetchall()
 
     # ── Text editor save history (<< / <<studio) ─────────────────────────

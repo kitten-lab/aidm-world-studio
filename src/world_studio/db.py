@@ -171,10 +171,16 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
             id                      TEXT PRIMARY KEY,
             subject_type            TEXT NOT NULL,
             subject_id              TEXT NOT NULL,
+            event_code              TEXT NOT NULL DEFAULT '',
+            place_instance_id       TEXT REFERENCES instances(id)
+                ON DELETE SET NULL,
+            place_name              TEXT NOT NULL DEFAULT '',
             realm_instance_id       TEXT REFERENCES instances(id)
                 ON DELETE SET NULL,
+            realm_name              TEXT NOT NULL DEFAULT '',
             timeline_instance_id    TEXT REFERENCES instances(id)
                 ON DELETE SET NULL,
+            timeline_name           TEXT NOT NULL DEFAULT '',
             story_when              TEXT NOT NULL DEFAULT '@unknown',
             node_index              INTEGER,
             verb                    TEXT NOT NULL DEFAULT 'record',
@@ -183,6 +189,112 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # Older DBs: add event_code and backfill HST-NNN per row
+    hist_cols = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(history_entries)").fetchall()
+    }
+    if hist_cols and "event_code" not in hist_cols:
+        conn.execute(
+            "ALTER TABLE history_entries ADD COLUMN event_code TEXT "
+            "NOT NULL DEFAULT ''"
+        )
+        hist_cols.add("event_code")
+    if hist_cols and "event_code" in hist_cols:
+        from .ids import format_ven_code
+
+        orphans = conn.execute(
+            """
+            SELECT id FROM history_entries
+            WHERE event_code IS NULL OR TRIM(event_code) = ''
+            ORDER BY created_at, id
+            """
+        ).fetchall()
+        if orphans:
+            max_n = 0
+            for r in conn.execute(
+                "SELECT event_code FROM history_entries "
+                "WHERE event_code GLOB 'HST-[0-9]*'"
+            ).fetchall():
+                code = (r["event_code"] or "").strip().upper()
+                if code.startswith("HST-"):
+                    try:
+                        max_n = max(max_n, int(code.split("-", 1)[1]))
+                    except ValueError:
+                        pass
+            for r in orphans:
+                max_n += 1
+                code = format_ven_code("HST", max_n)
+                conn.execute(
+                    "UPDATE history_entries SET event_code = ? WHERE id = ?",
+                    (code, r["id"]),
+                )
+    # Place + snapshotted names for where-the-act-happened context
+    for col, decl in (
+        ("place_instance_id", "TEXT"),
+        ("place_name", "TEXT NOT NULL DEFAULT ''"),
+        ("realm_name", "TEXT NOT NULL DEFAULT ''"),
+        ("timeline_name", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if hist_cols and col not in hist_cols:
+            conn.execute(
+                f"ALTER TABLE history_entries ADD COLUMN {col} {decl}"
+            )
+            hist_cols.add(col)
+    # Best-effort fill of missing name snapshots from current instance titles
+    # (instances have name_override; formal name lives on the prime VEN)
+    _inst_title = (
+        "COALESCE(NULLIF(TRIM(i.name_override), ''), v.name, '')"
+    )
+    if hist_cols and "place_name" in hist_cols:
+        conn.execute(
+            f"""
+            UPDATE history_entries
+            SET place_name = COALESCE(
+                (
+                    SELECT {_inst_title}
+                    FROM instances i
+                    JOIN vens v ON v.id = i.ven_id
+                    WHERE i.id = history_entries.place_instance_id
+                ),
+                place_name, ''
+            )
+            WHERE (place_name IS NULL OR TRIM(place_name) = '')
+              AND place_instance_id IS NOT NULL
+            """
+        )
+        conn.execute(
+            f"""
+            UPDATE history_entries
+            SET realm_name = COALESCE(
+                (
+                    SELECT {_inst_title}
+                    FROM instances i
+                    JOIN vens v ON v.id = i.ven_id
+                    WHERE i.id = history_entries.realm_instance_id
+                ),
+                realm_name, ''
+            )
+            WHERE (realm_name IS NULL OR TRIM(realm_name) = '')
+              AND realm_instance_id IS NOT NULL
+            """
+        )
+        conn.execute(
+            f"""
+            UPDATE history_entries
+            SET timeline_name = COALESCE(
+                (
+                    SELECT {_inst_title}
+                    FROM instances i
+                    JOIN vens v ON v.id = i.ven_id
+                    WHERE i.id = history_entries.timeline_instance_id
+                ),
+                timeline_name, ''
+            )
+            WHERE (timeline_name IS NULL OR TRIM(timeline_name) = '')
+              AND timeline_instance_id IS NOT NULL
+            """
+        )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_history_subject "
         "ON history_entries(subject_type, subject_id, created_at)"
@@ -190,6 +302,14 @@ def migrate_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_history_timeline "
         "ON history_entries(timeline_instance_id, node_index)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_history_event_code "
+        "ON history_entries(event_code)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_history_place "
+        "ON history_entries(place_instance_id)"
     )
 
 

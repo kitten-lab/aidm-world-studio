@@ -831,16 +831,99 @@ def _inv(world: World) -> str:
     return "\n".join(lines)
 
 
+def _record_move_history(
+    world: World,
+    thing: InstanceView,
+    *,
+    verb: str,
+    story_when: str,
+    node_index: int | None,
+    note: str,
+    also: InstanceView | None = None,
+    also_verb: str = "receive",
+    also_note: str = "",
+    extra_legs: list[tuple[InstanceView, str, str]] | None = None,
+) -> str:
+    """
+    Movement history: always on the moved instance; optional vessel / place /
+    player legs. All legs share one event_code (HST-NNN).
+
+    Returns the shared event_code.
+    """
+    from .story_when import resolve_history_where
+
+    where = resolve_history_where(world)
+    place_id = where["place_instance_id"]
+    place_name = where["place_name"] or ""
+    realm_id = where["realm_instance_id"]
+    realm_name = where["realm_name"] or ""
+    tl_id = where["timeline_instance_id"]
+    tl_name = where["timeline_name"] or ""
+
+    legs: list[dict] = [
+        {
+            "subject_type": "instance",
+            "subject_id": thing.id,
+            "verb": verb,
+            "note": note,
+        }
+    ]
+    seen: set[str] = {thing.id}
+
+    def _add_leg(inst: InstanceView | None, v: str, n: str) -> None:
+        if inst is None or inst.id in seen:
+            return
+        seen.add(inst.id)
+        legs.append(
+            {
+                "subject_type": "instance",
+                "subject_id": inst.id,
+                "verb": v,
+                "note": n,
+            }
+        )
+
+    if also is not None:
+        _add_leg(also, also_verb, also_note or note)
+    for inst, v, n in extra_legs or []:
+        _add_leg(inst, v, n)
+
+    return world.record_history_event(
+        legs,
+        story_when=story_when,
+        node_index=node_index,
+        place_instance_id=place_id,
+        place_name=place_name,
+        realm_instance_id=realm_id,
+        realm_name=realm_name,
+        timeline_instance_id=tl_id,
+        timeline_name=tl_name,
+    )
+
+
+def _player_instance(world: World) -> InstanceView | None:
+    pid = world.player_id()
+    if not pid:
+        return None
+    return world.get_instance(pid)
+
+
 def _take(world: World, arg: str) -> str:
     """
     take <thing>                 — from the place floor
     take <thing> from <box>      — out of a reachable container (room or inventory)
     get …                        — same as take
+    Optional story when: when @N  ·  --when 0  (default @unknown)
     """
+    from .story_when import peel_when_anywhere
+
     if not arg:
         return fmt.hint(
-            "Take what?  take <thing>  |  take <thing> from <box>  |  get <thing> from <box>"
+            "Take what?  take <thing>  |  take <thing> from <box>  "
+            "[when @N | --when 0]"
         )
+
+    arg, story_when, node_index = peel_when_anywhere(arg)
 
     # take X from Y
     lower = arg.lower()
@@ -871,7 +954,29 @@ def _take(world: World, arg: str) -> str:
         prior = world.container_of(thing.id)
         world.take_from(thing.id, cont.id)
         _push_put_undo(world, thing.id, prior, f"take {thing.name}")
-        return fmt.ok(f"Taken · {thing.name}  from  {cont.name}")
+        player = _player_instance(world)
+        tname = display_name(thing.name)
+        cname = display_name(cont.name)
+        code = _record_move_history(
+            world,
+            thing,
+            verb="take",
+            story_when=story_when,
+            node_index=node_index,
+            note=f"from {cname}",
+            also=cont,
+            also_verb="give",
+            also_note=f"gave {tname}",
+            extra_legs=[
+                (player, "receive", f"took {tname} from {cname}"),
+            ]
+            if player
+            else None,
+        )
+        return fmt.ok(
+            f"Taken · {thing.name}  from  {cont.name}  ·  "
+            f"story {story_when}  ·  {code}"
+        )
 
     # take from floor
     thing = world.resolve_here_named(arg)
@@ -895,21 +1000,66 @@ def _take(world: World, arg: str) -> str:
     prior = cont
     world.take(thing.id)
     _push_put_undo(world, thing.id, prior, f"take {thing.name}")
-    return fmt.ok(f"Taken · {thing.name}")
+    player = _player_instance(world)
+    tname = display_name(thing.name)
+    pname = display_name(loc.name) if loc else "here"
+    code = _record_move_history(
+        world,
+        thing,
+        verb="take",
+        story_when=story_when,
+        node_index=node_index,
+        note=f"from floor {pname}",
+        also=loc,
+        also_verb="give",
+        also_note=f"gave {tname} from floor",
+        extra_legs=[
+            (player, "receive", f"took {tname} from floor"),
+        ]
+        if player
+        else None,
+    )
+    return fmt.ok(
+        f"Taken · {thing.name}  ·  story {story_when}  ·  {code}"
+    )
 
 
 def _drop(world: World, arg: str) -> str:
-    if not arg:
-        return fmt.hint("Drop what?")
-    # drop only top-level inventory (not nested — take from first)
     from .ids import names_match
+    from .story_when import peel_when_anywhere
 
+    if not arg:
+        return fmt.hint("Drop what?  drop <thing> [when @N | --when 0]")
+    arg, story_when, node_index = peel_when_anywhere(arg)
+    # drop only top-level inventory (not nested — take from first)
     for it in world.inventory():
         if names_match(arg, it.name):
             prior = world.container_of(it.id)
             world.drop(it.id)
             _push_put_undo(world, it.id, prior, f"drop {it.name}")
-            return fmt.ok(f"Dropped · {it.name}")
+            loc = world.player_location()
+            player = _player_instance(world)
+            tname = display_name(it.name)
+            pname = display_name(loc.name) if loc else "here"
+            code = _record_move_history(
+                world,
+                it,
+                verb="drop",
+                story_when=story_when,
+                node_index=node_index,
+                note=f"to floor {pname}",
+                also=loc,
+                also_verb="receive",
+                also_note=f"received {tname} on floor",
+                extra_legs=[
+                    (player, "give", f"dropped {tname}"),
+                ]
+                if player
+                else None,
+            )
+            return fmt.ok(
+                f"Dropped · {it.name}  ·  story {story_when}  ·  {code}"
+            )
     return fmt.err(f"You aren't carrying {arg!r}.")
 
 
@@ -2527,14 +2677,21 @@ def _record_subject_history(
     story_when: str,
     node_index: int | None,
     note: str = "",
+    place_instance_id: str | None = None,
     realm_instance_id: str | None = None,
     timeline_instance_id: str | None = None,
-) -> None:
-    """Write a life-of-material history row (best-effort strand from place)."""
-    from .story_when import resolve_strand_for_record
+    event_code: str | None = None,
+) -> str:
+    """
+    Write a life-of-material history row (best-effort place + strand).
 
-    r_id, t_id = resolve_strand_for_record(
+    Returns the shared event_code (new HST-NNN unless *event_code* given).
+    """
+    from .story_when import resolve_history_where
+
+    where = resolve_history_where(
         world,
+        place_instance_id=place_instance_id,
         realm_instance_id=realm_instance_id,
         timeline_instance_id=timeline_instance_id,
     )
@@ -2544,10 +2701,22 @@ def _record_subject_history(
         verb=verb,
         story_when=story_when,
         node_index=node_index,
-        realm_instance_id=r_id,
-        timeline_instance_id=t_id,
+        place_instance_id=where["place_instance_id"],
+        place_name=where["place_name"] or "",
+        realm_instance_id=where["realm_instance_id"],
+        realm_name=where["realm_name"] or "",
+        timeline_instance_id=where["timeline_instance_id"],
+        timeline_name=where["timeline_name"] or "",
         note=note,
+        event_code=event_code,
     )
+    # Read back code from the latest row for this subject (or use given)
+    if event_code:
+        return event_code.strip().upper()
+    rows = world.history_for(subject_type, subject_id)
+    if rows:
+        return (rows[-1]["event_code"] or "").strip().upper()
+    return ""
 
 
 def _peel_and_story_when(text: str) -> tuple[str, str, int | None]:
@@ -2664,6 +2833,13 @@ def _resolve_instance_target(world: World, query: str):
     q = (query or "").strip()
     if not q:
         return None, fmt.err("No match for empty name.")
+
+    # Player self: me / self / i / you / player
+    if q.lower() in ("me", "self", "i", "you", "player"):
+        player = _player_instance(world)
+        if player is None:
+            return None, fmt.hint("No player set.")
+        return player, None
 
     # Current place's layer coords (not "things here")
     layer_kind = _layer_keyword_kind(q)
@@ -3732,21 +3908,24 @@ def _history(world: World, arg: str) -> str:
     history                  — usage
     history nodes            — nodes on current place timeline
     history here             — history for this place instance
+    history me / builder     — history for the player instance
     history on <match>       — history for an instance
     history ven <match>      — history for a prime VEN
+    history event HST-001    — all legs of one shared event
+    history HST-001          — same as event
     """
     from .story_when import format_history_line
-    from .ids import display_name as dname
+    from .ids import display_name as dname, parse_history_event_code
 
     arg = (arg or "").strip()
     low = arg.lower()
 
     if not arg:
         return fmt.hint(
-            "Usage: history nodes  ·  history here  ·  history on <thing>  ·  "
-            "history ven <prime>\n"
-            "  Story when on create/spawn:  … when @3  ·  … when @unknown\n"
-            "  Craft time is always stored; story when is @N or @unknown"
+            "Usage: history nodes  ·  history here  ·  history me  ·  "
+            "history on <thing>  ·  history ven <prime>  ·  history HST-001\n"
+            "  Shared event codes (HST-NNN) link put/receive, take/give, etc.\n"
+            "  Story when:  … when @3  ·  --when 0  ·  default @unknown"
         )
 
     if low in ("nodes", "node"):
@@ -3774,19 +3953,45 @@ def _history(world: World, arg: str) -> str:
             lines.append(fmt.bullet(label, n["created_at"] or ""))
         return "\n".join(lines)
 
-    def _layer_names(
-        realm_id: str | None, tl_id: str | None
-    ) -> tuple[str | None, str | None]:
-        rn = tn = None
-        if realm_id:
-            r = world.get_instance(realm_id)
-            rn = dname(r.name) if r else None
-        if tl_id:
-            t = world.get_instance(tl_id)
-            tn = dname(t.name) if t else None
-        return rn, tn
+    def _where_names(row) -> tuple[str | None, str | None, str | None]:
+        """Prefer snapshotted names; fall back to live instance titles."""
+        keys = set(row.keys()) if hasattr(row, "keys") else set()
 
-    def _format_entries(heading: str, rows: list) -> str:
+        def snap(col: str, iid_col: str) -> str | None:
+            if col in keys:
+                s = (row[col] or "").strip()
+                if s:
+                    return s
+            iid = row[iid_col] if iid_col in keys else None
+            if iid:
+                inst = world.get_instance(iid)
+                if inst:
+                    return dname(inst.name)
+            return None
+
+        return (
+            snap("place_name", "place_instance_id"),
+            snap("realm_name", "realm_instance_id"),
+            snap("timeline_name", "timeline_instance_id"),
+        )
+
+    def _subject_label(subject_type: str, subject_id: str) -> str:
+        if subject_type == "instance":
+            inst = world.get_instance(subject_id)
+            if inst:
+                ref = world.short_ref_of(inst.id)
+                return fmt.named_ref(inst.name, ref)
+            return subject_id
+        if subject_type == "ven":
+            ven = world.get_ven(subject_id)
+            if ven:
+                return f"{ven.name} [{ven.slug}]"
+            return subject_id
+        return f"{subject_type}:{subject_id}"
+
+    def _format_entries(
+        heading: str, rows: list, *, show_subject: bool = False
+    ) -> str:
         if not rows:
             return fmt.join_blocks(
                 fmt.section(heading),
@@ -3795,21 +4000,50 @@ def _history(world: World, arg: str) -> str:
             )
         lines = [fmt.section(heading)]
         for r in rows:
-            rn, tn = _layer_names(
-                r["realm_instance_id"], r["timeline_instance_id"]
-            )
+            pn, rn, tn = _where_names(r)
+            note = r["note"] or ""
+            if show_subject:
+                sub = _subject_label(
+                    r["subject_type"] or "instance", r["subject_id"] or ""
+                )
+                note = f"{sub}  ·  {note}" if note else sub
             lines.append(
                 "  "
                 + format_history_line(
                     verb=r["verb"] or "record",
                     story_when=r["story_when"] or "@unknown",
                     crafted_at=r["created_at"] or "—",
+                    place_name=pn,
                     realm_name=rn,
                     timeline_name=tn,
-                    note=r["note"] or "",
+                    note=note,
+                    event_code=r["event_code"] or "",
                 )
             )
         return "\n".join(lines)
+
+    # Shared event lookup: history HST-001 · history event HST-001
+    event_raw = arg
+    if low.startswith("event "):
+        event_raw = arg[6:].strip()
+    event_code = parse_history_event_code(event_raw)
+    if event_code:
+        rows = world.history_for_event(event_code)
+        return _format_entries(
+            f"History event · {event_code}",
+            rows,
+            show_subject=True,
+        )
+
+    if low in ("me", "self", "i", "player") or low.startswith("me "):
+        player = _player_instance(world)
+        if not player:
+            return fmt.hint("No player set.")
+        rows = world.history_for("instance", player.id)
+        ref = world.short_ref_of(player.id)
+        return _format_entries(
+            f"History · {fmt.named_ref(player.name, ref)} (you)", rows
+        )
 
     if low == "here" or low.startswith("here "):
         loc = world.player_location()
@@ -3852,7 +4086,8 @@ def _history(world: World, arg: str) -> str:
         return _format_entries(f"History · {ven.name} [{ven.slug}]", rows)
     return fmt.err(
         f"No history subject matching {arg!r}.  "
-        f"Try: history on <thing>  ·  history ven <prime>  ·  history here"
+        f"Try: history on <thing>  ·  history me  ·  history here  ·  "
+        f"history HST-001"
     )
 
 
@@ -3939,7 +4174,7 @@ def _create(world: World, arg: str) -> str:
         parse_named_flags,
         story_when_from_flag,
     )
-    from .story_when import peel_story_when_suffix, resolve_strand_for_record
+    from .story_when import peel_story_when_suffix
 
     arg = (arg or "").strip()
     if not arg:
@@ -4008,22 +4243,32 @@ def _create(world: World, arg: str) -> str:
         f"create {kind}",
         lambda w, vid=ven_id: w.delete_ven(vid),
     )
-    realm_id, tl_id = resolve_strand_for_record(world)
+    from .story_when import resolve_history_where
+
+    where = resolve_history_where(world)
+    event_code = world.next_history_event_code()
     world.record_history(
         "ven",
         ven_id,
         verb="create",
         story_when=story_when,
         node_index=node_index,
-        realm_instance_id=realm_id,
-        timeline_instance_id=tl_id,
+        place_instance_id=where["place_instance_id"],
+        place_name=where["place_name"] or "",
+        realm_instance_id=where["realm_instance_id"],
+        realm_name=where["realm_name"] or "",
+        timeline_instance_id=where["timeline_instance_id"],
+        timeline_name=where["timeline_name"] or "",
         note=name,
+        event_code=event_code,
     )
     ven = world.get_ven(ven_id)
     assert ven is not None
     label = format_kind_label(ven.kind, ven.subtype)
     code_bit = f"code {ven.code}  ·  " if ven.code else ""
-    bits = [f"{label}  ·  {code_bit}slug {ven.slug}  ·  {ven.id}"]
+    bits = [
+        f"{label}  ·  {code_bit}slug {ven.slug}  ·  {event_code}  ·  {ven.id}"
+    ]
     if parent_label:
         bits.append(f"of {parent_label}")
     bits.append(f"story {story_when}")
@@ -4137,15 +4382,44 @@ def _spawn(world: World, arg: str) -> str:
     )
     inst = world.get_instance(inst_id)
     assert inst is not None
-    world.record_history(
-        "instance",
-        inst_id,
-        verb="spawn",
+    from .story_when import resolve_history_where
+
+    where = resolve_history_where(
+        world,
+        place_instance_id=loc.id if loc else None,
+        realm_instance_id=inst.realm_instance_id
+        or (loc.realm_instance_id if loc else None),
+        timeline_instance_id=inst.timeline_instance_id
+        or (loc.timeline_instance_id if loc else None),
+    )
+    # Spawn event: instance always; place also receives floor spawns
+    spawn_legs: list[dict] = [
+        {
+            "subject_type": "instance",
+            "subject_id": inst_id,
+            "verb": "spawn",
+            "note": display_name(inst.name),
+        }
+    ]
+    if loc and ven.kind != "place":
+        spawn_legs.append(
+            {
+                "subject_type": "instance",
+                "subject_id": loc.id,
+                "verb": "receive",
+                "note": f"spawned {display_name(inst.name)} on floor",
+            }
+        )
+    event_code = world.record_history_event(
+        spawn_legs,
         story_when=story_when,
         node_index=node_index,
-        realm_instance_id=inst.realm_instance_id,
-        timeline_instance_id=inst.timeline_instance_id,
-        note=display_name(inst.name),
+        place_instance_id=where["place_instance_id"],
+        place_name=where["place_name"] or "",
+        realm_instance_id=where["realm_instance_id"],
+        realm_name=where["realm_name"] or "",
+        timeline_instance_id=where["timeline_instance_id"],
+        timeline_name=where["timeline_name"] or "",
     )
     ref = world.short_ref_of(inst_id)
     label = format_kind_label(ven.kind, ven.subtype)
@@ -4156,7 +4430,7 @@ def _spawn(world: World, arg: str) -> str:
             fmt.ok(f"Spawned place · {fmt.named_ref(title, ref)}"),
             fmt.hint(
                 f"{label}  ·  prime {prime_bit}  ·  unlinked room  ·  "
-                f"story {story_when}  ·  {inst_id}"
+                f"story {story_when}  ·  {event_code}  ·  {inst_id}"
             ),
             fmt.hint(
                 f"Link:  link <exit> -> {title} both  ·  "
@@ -4169,7 +4443,7 @@ def _spawn(world: World, arg: str) -> str:
         fmt.ok(f"Spawned · {fmt.named_ref(inst.name, ref)}"),
         fmt.hint(
             f"{label}  ·  prime {prime_bit}  ·  {where}  ·  "
-            f"story {story_when}  ·  {inst_id}"
+            f"story {story_when}  ·  {event_code}  ·  {inst_id}"
         ),
         fmt.hint(
             f"Rename later: rename <match> as <title>  ·  list: instances {prime_bit}"
@@ -4227,13 +4501,21 @@ def _resolve_rename_target(
 
 
 def _rename(world: World, arg: str) -> str:
-    """rename <match|here|me|place> as <new title>  ·  call …"""
+    """rename <match|here|me|place> as <new title> [when @N]  ·  call …"""
+    from .story_when import peel_when_anywhere
+
     if " as " not in arg.lower():
         return fmt.hint(
-            "Usage: rename <thing|me|here|place name> as <new title>\n"
+            "Usage: rename <thing|me|here|place name> as <new title> "
+            "[when @N | --when 0]\n"
             "  You: rename me as Ada  ·  Prime: vens rename Builder as Ada"
         )
+    arg, story_when, node_index = peel_when_anywhere(arg)
     idx = arg.lower().rfind(" as ")
+    if idx < 0:
+        return fmt.hint(
+            "Usage: rename <thing|me|here|place name> as <new title>"
+        )
     match, new_title = arg[:idx].strip(), arg[idx + 4 :].strip()
     if not match or not new_title:
         return fmt.hint("Usage: rename <thing|here|place name> as <new title>")
@@ -4255,9 +4537,21 @@ def _rename(world: World, arg: str) -> str:
     ref = world.short_ref_of(thing.id)
     updated = world.get_instance(thing.id)
     assert updated is not None
+    old_disp = display_name(prior)
+    new_disp = display_name(updated.name)
+    event_code = _record_subject_history(
+        world,
+        "instance",
+        iid,
+        verb="rename",
+        story_when=story_when,
+        node_index=node_index,
+        note=f"{old_disp} → {new_disp}",
+    )
     kind_note = f"  ({thing.ven_kind})" if thing.ven_kind == "place" else ""
     return fmt.ok(
-        f"Renamed · {display_name(prior)} → {fmt.named_ref(updated.name, ref)}{kind_note}"
+        f"Renamed · {old_disp} → {fmt.named_ref(updated.name, ref)}"
+        f"{kind_note}  ·  story {story_when}  ·  {event_code}"
     )
 
 
@@ -4439,11 +4733,14 @@ def _resolve_put_destination(
     world: World, cont_name: str
 ) -> tuple[InstanceView | None, str | None]:
     """
-    Resolve put destination: reachable container, current place, or exit neighbor.
+    Resolve put destination: reachable container, current place, player, or exit neighbor.
 
     Nearby rooms (one exit hop) count as present so you can move people/objects
-    next door without inventory.
+    next door without inventory. Player is excluded from normal here-candidates
+    (you *are* them), so me / builder / name match is explicit.
     """
+    from .ids import names_match
+
     key = cont_name.strip()
     if not key:
         return None, fmt.hint("Usage: put <thing> in <container|exit|place>")
@@ -4453,6 +4750,15 @@ def _resolve_put_destination(
         if not loc:
             return None, fmt.hint("Nowhere.")
         return loc, None
+    if low in ("me", "self", "i", "you", "player", "inv", "inventory"):
+        player = _player_instance(world)
+        if not player:
+            return None, fmt.hint("No player set.")
+        return player, None
+
+    player = _player_instance(world)
+    if player is not None and names_match(key, player.name):
+        return player, None
 
     cont = world.resolve_here_named(key)
     if cont is not None:
@@ -4467,17 +4773,28 @@ def _resolve_put_destination(
     return None, fmt.err(
         f"No container or nearby place {key!r}.\n"
         + fmt.hint(
-            "put <thing> in <box|person>  ·  put <thing> in <path>  ·  "
+            "put <thing> in <box|person|me>  ·  put <thing> in <path>  ·  "
             "put <thing> in <adjacent place>  ·  paths"
         )
     )
 
 
 def _put(world: World, arg: str) -> str:
+    from .story_when import peel_when_anywhere
+
+    if not arg:
+        return fmt.hint(
+            "Usage: put <thing> in <container|path|nearby place> [slot] "
+            "[when @N | --when 0]\n"
+            "  put hope in cartographer  ·  put silver in box --when 1\n"
+            "  Inner life: put <sense|…> in <person>  (slot auto = kind)"
+        )
+    arg, story_when, node_index = peel_when_anywhere(arg)
     split = _split_put_args(arg)
     if not split:
         return fmt.hint(
-            "Usage: put <thing> in <container|path|nearby place> [slot]\n"
+            "Usage: put <thing> in <container|path|nearby place> [slot] "
+            "[when @N | --when 0]\n"
             "  put silver in box  ·  put silver in north  ·  put Archivist into Side Alcove\n"
             "  Inner life: put <goal|feeling|…> in <person>  (slot auto = kind)"
         )
@@ -4505,8 +4822,16 @@ def _put(world: World, arg: str) -> str:
     if thing.id == cont.id:
         return fmt.err("Cannot put something into itself.")
 
-    # Person + sense / person-archetype → Inner life slot unless user set one
+    player = _player_instance(world)
+    # Into the builder → inventory (not inner life), unless slot explicit
     if (
+        not slot_explicit
+        and player is not None
+        and cont.id == player.id
+    ):
+        slot = "inventory"
+    # Person + sense / person-archetype → Inner life slot unless user set one
+    elif (
         not slot_explicit
         and cont.ven_kind == "person"
         and is_inner_life_kind(thing.ven_kind, thing.ven_subtype)
@@ -4522,9 +4847,38 @@ def _put(world: World, arg: str) -> str:
     prior = world.container_of(thing.id)
     world.put_in(thing.id, cont.id, slot=slot)
     _push_put_undo(world, thing.id, prior, f"put {thing.name}")
+    tname = display_name(thing.name)
+    cname = display_name(cont.name)
+    extra: list[tuple[InstanceView, str, str]] = []
+    # If it left the builder's inventory, also log give on the player
+    if (
+        player
+        and prior
+        and prior[0] == player.id
+        and cont.id != player.id
+    ):
+        extra.append((player, "give", f"put {tname} into {cname}"))
+    code = _record_move_history(
+        world,
+        thing,
+        verb="put",
+        story_when=story_when,
+        node_index=node_index,
+        note=f"into {cname} [{slot}]",
+        also=cont,
+        also_verb="receive",
+        also_note=f"received {tname} [{slot}]",
+        extra_legs=extra or None,
+    )
     if cont.ven_kind == "place":
-        return fmt.ok(f"Moved · {thing.name} → {cont.name}")
-    return fmt.ok(f"Put · {thing.name} in {cont.name} [{slot}]")
+        return fmt.ok(
+            f"Moved · {thing.name} → {cont.name}  ·  "
+            f"story {story_when}  ·  {code}"
+        )
+    return fmt.ok(
+        f"Put · {thing.name} in {cont.name} [{slot}]  ·  "
+        f"story {story_when}  ·  {code}"
+    )
 
 
 def _elevate(world: World, arg: str) -> str:

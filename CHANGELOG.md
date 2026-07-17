@@ -9,6 +9,11 @@ Format: dated bullets, one line each — what landed, not a full story.
 
 ## 2026-07-16
 
+- **History where:** each row stores place + realm + timeline ids and snapshotted names; list lines show `Place · Realm / Timeline`
+- **Rename history:** `rename` / `call` writes a `rename` life-of-item row on the instance (`Old → New`, optional `when @N` / `--when`, shared `HST-…`)
+- **History event codes:** shared `HST-NNN` on all legs of one act; `history HST-001` / `history event …` lists every subject; lines show the code
+- **Movement legs expanded:** take/drop also record place + player; spawn onto floor records place `receive`; put/take-from keep vessel; `history me` / `history here`
+- **Movement history:** `take` / `drop` / `put` write life-of-item rows; put and take-from also record the vessel (`receive` / `give`); optional `when @N` / `--when N` (default `@unknown`, own craft time per act)
 - **Create/spawn flags:** free-order `--type/--name/--desc/--when` (and short `-t -n -d -w`); legacy `|` / `when @N` still work
 - **History backbone:** timeline nodes + life-of-item `history_entries`; `create`/`spawn`/`lore` take `when @N` or `when @unknown`; `history nodes|here|on|ven` (extended bag/visit/fold ideas kept in product-map, not built)
 - Add [docs/product-map.md](docs/product-map.md) — ADM / Silo / AIDM / Forestry / history doctrine in-repo
