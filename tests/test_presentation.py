@@ -44,19 +44,18 @@ class LookHierarchyTests(unittest.TestCase):
         self.assertIn("Material", text)
         self.assertIn("Prime", text)
         self.assertRegex(text, r"place\s+\|\s+Material\s+\|\s+Prime")
-        # look only hints at paths — full list is `paths`
-        self.assertRegex(text, r"\d+ path\(s\)")
-        self.assertNotIn("through the mirror", text)
-        self.assertNotIn("Spatial", text)
+        # paths inline on look (grouped list)
+        self.assertIn("Paths", text)
+        self.assertIn("through the mirror", text)
         # Things / feelings
         self.assertIn("Silver Thread", text)
         self.assertIn("Liturgical Hush", text)
 
-        # Hierarchy: location line → description → path hint
+        # Hierarchy: location line → description → paths
         i_title = text.index("The Cathedral of Ordinary Light")
         i_realm = text.lower().index("material")  # realm on location line
         i_prose = text.index("White stone")
-        i_paths = text.lower().index("path(s)")
+        i_paths = text.index("Paths")
         self.assertLess(i_title, i_realm)
         self.assertLess(i_realm, i_prose)
         self.assertLess(i_prose, i_paths)
@@ -83,9 +82,8 @@ class LookHierarchyTests(unittest.TestCase):
         text = plain(result.message)
         self.assertIn("Hall of Shelved Years", text)
         self.assertIn("Memory-Archive", text)
-        self.assertRegex(text, r"\d+ path\(s\)")
-        # full paths list not dumped on look after go
-        self.assertNotIn("years later", text)
+        # look after go still includes inline paths
+        self.assertIn("Paths", text)
         # travel cue then room
         self.assertIn("through the mirror", text)
 
@@ -119,9 +117,10 @@ class LookHierarchyTests(unittest.TestCase):
     def test_no_raw_half_tags_from_unescaped_exit_types_in_plain(self) -> None:
         result = dispatch(self.world, "exits")
         text = plain(result.message)
-        # link types as group headers (title case), not swallowed by markup
-        self.assertIn("Dimensional", text)
-        self.assertIn("Spatial", text)
+        # type shorthands on each row (sp spatial, di dimensional)
+        self.assertRegex(text, r"\bsp\b")
+        self.assertRegex(text, r"\bdi\b")
+        self.assertIn("→", text)
         # no orphan closing tags typical of broken markup
         self.assertIsNone(re.search(r"\[/bold(?!\s)", text))
 

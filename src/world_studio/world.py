@@ -68,6 +68,14 @@ SUBTYPE_KINDS = frozenset(
 FEELING_GROUP_KINDS = frozenset({"sense"})
 
 LINK_TYPES = ("spatial", "dimensional", "temporal", "narrative", "conditional")
+# Compact path-list prefixes (fixed width 2 for column scan)
+LINK_TYPE_CODES: dict[str, str] = {
+    "spatial": "sp",
+    "dimensional": "di",
+    "temporal": "te",
+    "narrative": "na",
+    "conditional": "co",
+}
 
 # Instance state key: object portal → place instance id (run travel; not room exits)
 PORTAL_STATE_KEY = "portal_to"

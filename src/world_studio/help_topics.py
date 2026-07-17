@@ -298,12 +298,12 @@ def _init_topics() -> None:
             "look",
             _p(
                 "Show the current place: location line, description, "
-                "people, things, and a short paths count (full list: paths)."
+                "people, things, and paths out of here (type · exit → place)."
             ),
             fmt.section("Usage"),
             fmt.example_line("look", "Full room view"),
             fmt.example_line("l", "Short alias"),
-            fmt.hint("Paths are summarized only — type paths for the grouped list."),
+            fmt.hint("paths alone reprints the list; go <label> to travel."),
         ),
         "go": _page(
             "go",
@@ -410,8 +410,10 @@ def _init_topics() -> None:
         "exits": _page(
             "paths",
             _p(
-                "List paths from the current place (typed place→place links) with "
-                "destination. Look only shows a count; this is the full grouped list. "
+                "List paths from the current place (typed place→place links). "
+                "Each row: type code · exit label → destination. "
+                "Same list appears on look. Codes: sp spatial · di dimensional · "
+                "te temporal · na narrative · co conditional. "
                 "Not used for app portals — those use run / logout."
             ),
             fmt.section("Usage"),

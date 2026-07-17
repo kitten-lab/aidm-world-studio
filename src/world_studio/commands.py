@@ -25,6 +25,7 @@ from .world import (
     FEELING_GROUP_KINDS,
     INNER_LIFE_KINDS,
     KINDS,
+    LINK_TYPE_CODES,
     LINK_TYPES,
     SUBTYPE_KINDS,
     InstanceView,
@@ -351,13 +352,10 @@ def _look(world: World) -> str:
     session_line = _session_hint_line(world)
     body = fmt.prose(loc.description)
 
-    # Full path list lives under `paths` — look only whispers a count
-    exit_block: str | None
-    n_paths = len(info["exits"] or [])
-    if n_paths:
-        exit_block = fmt.hint(
-            f"{n_paths} path(s)  ·  paths  ·  go <label>"
-        )
+    # Paths inline (same grouping as `paths`); empty rooms stay quiet
+    exits = list(info["exits"] or [])
+    if exits:
+        exit_block: str | None = _format_paths_block(world, exits)
     else:
         exit_block = fmt.hint("No paths from here.")
 
@@ -420,61 +418,54 @@ def _coords_label(coords: dict) -> str:
     return f"{r} / {t}"
 
 
+def _path_type_code(link_type: str) -> str:
+    """Two-letter path type prefix (sp, di, te, na, co)."""
+    t = (link_type or "spatial").strip().lower() or "spatial"
+    code = LINK_TYPE_CODES.get(t)
+    if code:
+        return code
+    bare = re.sub(r"[^a-z]", "", t)[:2] or "??"
+    return f"{bare:<2}"[:2]
+
+
 def _format_paths_block(world: World, exits: list) -> str:
     """
-    Paths list grouped by link type::
+    Flat path list with type shorthand on each row::
 
         Paths
-
-        Spatial
-          · east → Place Name
-
-        Temporal
-          · through rift → Under Him
+          sp · east → Place Name
+          di · through the mirror → Hall of Shelved Years
     """
-    from collections import defaultdict
-
-    from . import format as fmt_mod
-
-    buckets: dict[str, list[tuple[str, str, str]]] = {t: [] for t in LINK_TYPES}
-    extras: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
-
+    type_rank = {t: i for i, t in enumerate(LINK_TYPES)}
+    # (rank, label_key, type, code, label, dname, dkind)
+    rows: list[tuple[int, str, str, str, str, str, str]] = []
     for ex in exits:
         t = (ex["link_type"] or "spatial").strip().lower() or "spatial"
         dest = world.get_instance(ex["to_instance_id"])
         dname = dest.name if dest else "?"
-        dkind = dest.ven_kind if dest else "place"
+        dkind = (dest.ven_kind if dest else "place") or "place"
         label = (ex["label"] or "?").strip() or "?"
-        entry = (label, dname, dkind)
-        if t in buckets:
-            buckets[t].append(entry)
-        else:
-            extras[t].append(entry)
+        rows.append(
+            (
+                type_rank.get(t, 100),
+                label.lower(),
+                t,
+                _path_type_code(t),
+                label,
+                dname,
+                dkind,
+            )
+        )
+    rows.sort(key=lambda r: (r[0], r[1]))
 
     lines: list[str] = [fmt.section("Paths")]
-    first_group = True
-
-    def emit_group(type_key: str, items: list[tuple[str, str, str]]) -> None:
-        nonlocal first_group
-        if not items:
-            return
-        if not first_group:
-            lines.append("")
-        first_group = False
-        title = type_key[:1].upper() + type_key[1:] if type_key else "Spatial"
-        color = fmt_mod.LINK_TYPE_COLORS.get(type_key, fmt_mod.MUTED)
-        # Indent type headers under "Paths" for at-a-glance hierarchy
-        lines.append(f"  [bold {color}]{fmt.safe(title)}[/bold {color}]")
-        for label, dname, dkind in items:
-            lines.append(
-                f"    [dim]·[/dim] {fmt.safe(label)}  →  {fmt.colored_name(dname, dkind)}"
-            )
-
-    for t in LINK_TYPES:
-        emit_group(t, buckets[t])
-    for t in sorted(extras.keys()):
-        emit_group(t, extras[t])
-
+    for _rank, _lk, t, code, label, dname, dkind in rows:
+        color = fmt.LINK_TYPE_COLORS.get(t, fmt.MUTED)
+        code_mk = f"[bold {color}]{fmt.safe(code)}[/bold {color}]"
+        lines.append(
+            f"  {code_mk} [dim]·[/dim] {fmt.safe(label)}  →  "
+            f"{fmt.colored_name(dname, dkind)}"
+        )
     return "\n".join(lines)
 
 

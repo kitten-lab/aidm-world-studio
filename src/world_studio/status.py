@@ -172,7 +172,4 @@ def format_status_command(world: World) -> str:
     ]
     if s.player_layer_note:
         blocks.append(fmt.hint(s.player_layer_note))
-    blocks.append(
-        fmt.hint("timeline list  ·  timeline set <name>  ·  help timeline")
-    )
     return fmt.join_blocks(*blocks, gap=0)

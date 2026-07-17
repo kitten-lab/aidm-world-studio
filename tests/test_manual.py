@@ -89,7 +89,10 @@ class HelpIndexAndTopicsTests(unittest.TestCase):
         self.assertTrue(r.ok)
         text = plain(r.message)
         self.assertIn("The Cathedral of Ordinary Light", text)
-        self.assertRegex(text, r"path\(s\)|No paths")
+        self.assertTrue(
+            "Paths" in text or "No paths" in text,
+            msg=text[:200],
+        )
 
     def test_plain_index_no_broken_tags(self) -> None:
         text = plain(dispatch(self.world, "help").message)
