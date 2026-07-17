@@ -64,7 +64,7 @@ python -m world_studio --textual --reseed
 ```
 
 Plain REPL shows a **situation strip** above each `›` prompt (you @ place · coords · inv · exits).  
-Use **`status`** (aliases: `sit`, `whereami`, `where`) for the full situation block.
+Use **`locate self`** (or bare **`locate`**) for where your avatar is now.
 
 **↑ / ↓** at the prompt recalls previous commands (REPL via `prompt_toolkit`, TUI built-in).
 
@@ -169,7 +169,7 @@ In the Textual UI: type a **number** or **topic**, Enter; **0** returns to the i
 
 ## Command cheat sheet
 
-- **Walk:** `look`, `go <exit>`, `status` / `sit` / `whereami`, `exits`, `map` / `map <depth>`, `take` / `drop`, `inv`, `examine`, `who`
+- **Walk:** `look`, `go <exit>`, `locate self`, `exits`, `map` / `map <depth>`, `take` / `drop`, `inv`, `examine`, `who`
 - **Lore:** `lore`, `lore add Title | body`, `lore search <q>`
 - **Build:** `dig`, `link <exit> -> <place> [type] [both]`, `@desc` / `@desc +` / `@desc clear`, `create` (`… of <parent>`), `spawn`, `put`, `elevate` (`… as Name`), `compose`, `lineage`, `vens` / `vens tree`
 - **Undo:** `undo` / `u` — last successful builder mutation this session (not `go`)

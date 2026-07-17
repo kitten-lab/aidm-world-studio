@@ -79,19 +79,17 @@ def dispatch(world: World, line: str) -> CommandResult:
         if cmd in ("quit", "exit", "q"):
             return CommandResult(True, fmt.hint("Until the next shelf."), quit=True)
         if cmd in ("clear", "clr"):
-            return CommandResult(
-                True,
-                fmt.hint(
-                    "Log cleared.  Successful go also clears the log for a fresh room view."
-                ),
-                clear_log=True,
-            )
+            # Empty message + clear_log → totally blank transcript (no tips banner)
+            return CommandResult(True, "", clear_log=True)
         if cmd in ("help", "?"):
             return CommandResult(True, _help(arg))
         if cmd in ("look", "l"):
             return CommandResult(True, _look(world))
+        if cmd == "locate":
+            return CommandResult(True, _locate(world, arg))
+        # Temporary aliases → locate self (retire later)
         if cmd in ("status", "sit", "situation", "whereami", "where"):
-            return CommandResult(True, _status(world))
+            return CommandResult(True, _locate(world, "self"))
         if cmd in ("paths", "path", "exits", "x", "ways", "waypoints", "way"):
             return CommandResult(True, _exits(world))
         if cmd in ("map", "graph"):
@@ -389,11 +387,24 @@ def _look(world: World) -> str:
     )
 
 
-def _status(world: World) -> str:
-    """status / sit / situation / whereami / where — one situation readout."""
+def _locate(world: World, arg: str) -> str:
+    """
+    locate self          — avatar where-now (place, layers, inv)
+    locate               — same as locate self
+    locate <code|name>   — later: find instances of a VEN / short ref
+    """
     from .status import format_status_command
 
-    return format_status_command(world)
+    target = (arg or "").strip()
+    low = target.lower()
+    if not target or low in ("self", "me", "i", "you", "player", "avatar"):
+        return format_status_command(world)
+    return fmt.hint(
+        f"locate {target!r} is not wired yet.\n"
+        "  Today:  locate self  ·  locate  (same — where your avatar is)\n"
+        "  Later:  locate THG-001  ·  locate <prime|short-ref>  "
+        "(instances of a VEN / code in the world)"
+    )
 
 
 def _coords_label(coords: dict) -> str:
@@ -5688,7 +5699,7 @@ def _layer_cmd(world: World, kind: str, arg: str) -> str:
         )
 
     if sub == "here":
-        return _status(world)
+        return _locate(world, "self")
 
     if sub == "clear":
         # clear on current place, or clear on <thing>

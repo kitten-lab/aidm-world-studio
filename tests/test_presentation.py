@@ -62,17 +62,19 @@ class LookHierarchyTests(unittest.TestCase):
         self.assertLess(i_prose, i_paths)
         self.assertIn("Location:", text)
 
-    def test_status_aligned_fields(self) -> None:
-        result = dispatch(self.world, "status")
+    def test_locate_self_aligned_fields(self) -> None:
+        result = dispatch(self.world, "locate self")
         self.assertTrue(result.ok)
         text = plain(result.message)
-        self.assertIn("Status", text)
+        self.assertIn("Locate", text)
         self.assertIn("place", text)
         self.assertIn("The Cathedral of Ordinary Light", text)
         self.assertIn("Material", text)
         self.assertIn("Prime", text)
-        # legacy alias same body
-        w = plain(dispatch(self.world, "whereami").message)
+        # bare locate and temporary aliases match
+        bare = plain(dispatch(self.world, "locate").message)
+        self.assertEqual(text, bare)
+        w = plain(dispatch(self.world, "status").message)
         self.assertEqual(text, w)
 
     def test_go_then_look_readable_multisection(self) -> None:

@@ -36,7 +36,7 @@ class HelpTextQueryTests(unittest.TestCase):
         via_topics = plain(render_help_topic("look"))
         self.assertIn("look", via_cli.lower())
         self.assertIn("look", via_topics.lower())
-        for needle in ("look", "status", "go"):
+        for needle in ("look", "locate", "go"):
             self.assertTrue(
                 needle in via_cli.lower() or "room" in via_cli.lower(),
                 msg=f"missing look-related content for {needle!r}",

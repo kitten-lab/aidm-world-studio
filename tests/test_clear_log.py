@@ -33,7 +33,8 @@ class ClearCommandTests(unittest.TestCase):
             r = dispatch(self.world, cmd)
             self.assertTrue(r.ok, msg=r.message)
             self.assertTrue(r.clear_log, msg=cmd)
-            self.assertIn("clear", plain(r.message).lower())
+            # Totally blank — no “log cleared” / tips text
+            self.assertEqual(plain(r.message).strip(), "")
 
     def test_go_success_clears_log(self) -> None:
         r = dispatch(self.world, "go through the mirror")
@@ -75,11 +76,15 @@ class ClearCliWiringTests(unittest.TestCase):
         self.assertIn("_clear_world_log", src)
         self.assertIn("log.clear()", src)
         self.assertIn("_clear_repl_screen", src)
-        # clr restores the same boot header as first load
+        # Boot banner exists for first load; clr path must not re-inject tips
         self.assertIn("_studio_boot_banner_markup", src)
         self.assertIn("_studio_boot_panel", src)
-        clear_src = inspect.getsource(cli.StudioApp._clear_world_log) if hasattr(cli, "StudioApp") else inspect.getsource(cli.run_textual)
-        self.assertIn("_studio_boot_banner_markup", clear_src)
+        clear_src = inspect.getsource(cli.run_textual)
+        # _clear_world_log is nested; ensure blank clear (no banner write after clear)
+        self.assertIn("def _clear_world_log", clear_src)
+        self.assertIn("log.clear()", clear_src)
+        # Pure clear skips command echo
+        self.assertIn('clear_log and not (message or "").strip()', clear_src)
 
 
 if __name__ == "__main__":

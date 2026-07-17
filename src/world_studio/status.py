@@ -1,4 +1,4 @@
-"""Player situation snapshot: status / sit / whereami (one command surface)."""
+"""Player situation snapshot for locate self (and strip / sidebar helpers)."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from .ids import display_name
 if TYPE_CHECKING:
     from .world import World
 
-# Legacy name kept for tests that import SIDEBAR_TITLE (strip/sidebar helpers)
-SIDEBAR_TITLE = "status"
+# Panel title for format_sidebar (tests / optional UI)
+SIDEBAR_TITLE = "locate"
 
 
 @dataclass
@@ -44,7 +44,7 @@ def _coords_display(realm_name: str, timeline_name: str) -> str:
 
 
 def situation(world: World) -> Situation:
-    """Snapshot of who / place / layers / inventory for status command and strip."""
+    """Snapshot of who / place / layers / inventory for locate self and strip."""
     pid = world.player_id()
     player = world.get_instance(pid) if pid else None
     inv = world.inventory() if pid else []
@@ -98,7 +98,7 @@ def situation(world: World) -> Situation:
 
 
 def format_sidebar(world: World) -> str:
-    """Multi-line panel helper (same fields as status; used by tests / optional UI)."""
+    """Multi-line panel helper (same fields as locate self; tests / optional UI)."""
     s = situation(world)
     lines = [
         f"[bold {fmt.ACCENT}]{SIDEBAR_TITLE}[/bold {fmt.ACCENT}]",
@@ -142,14 +142,14 @@ def format_strip(world: World) -> str:
 
 def format_status_command(world: World) -> str:
     """
-    Full situation block for status / sit / situation / whereami / where.
+    Full situation block for ``locate self`` (avatar where-now).
 
-    Combines former whereami coordinates detail with inventory/paths.
+    Name kept for import stability; prefer calling via the locate command.
     """
     s = situation(world)
     if s.nowhere:
         return fmt.join_blocks(
-            fmt.title_line("Status"),
+            fmt.title_line("Locate · self"),
             fmt.meta_row("you", s.who, kind="person"),
             fmt.hint("Nowhere — dig or reseed."),
             gap=0,
@@ -160,7 +160,7 @@ def format_status_command(world: World) -> str:
         inv_line += f" … +{len(s.inventory_names) - 8}"
 
     blocks: list[str] = [
-        fmt.title_line("Status"),
+        fmt.title_line("Locate · self"),
         fmt.meta_row("you", s.who, kind="person"),
         fmt.meta_row("place", s.place, s.place_id, kind="place"),
         fmt.meta_row("ven", s.place_ven_label),

@@ -14,7 +14,7 @@ _TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
     "run": ("run",),
     "logout": ("logout", "logoff", "log-out"),
     "portal": ("portal",),
-    "status": ("status", "sit", "situation", "whereami", "where"),
+    "locate": ("locate", "status", "sit", "situation", "whereami", "where"),
     "exits": ("exits", "x", "paths", "path", "ways", "waypoints", "way"),
     "map": ("map", "graph"),
     "inv": ("inv", "inventory", "i"),
@@ -83,7 +83,7 @@ _HELP_INDEX_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
             ("go", "Travel a path by label"),
             ("run", "Enter a place via installed app portal (not paths)"),
             ("logout", "Leave a run session → where you entered from"),
-            ("status", "You / place / realm / timeline / inv (aliases: sit, whereami)"),
+            ("locate", "Where your avatar is (locate self); later: codes"),
             ("paths", "List paths from here (aliases: exits, ways, x)"),
             ("map", "Local multiverse map (path tree)"),
         ],
@@ -380,26 +380,32 @@ def _init_topics() -> None:
             fmt.example_line("portal clear mail", "Remove binding"),
             fmt.hint("Then: put <app> in <device>  ·  run <app> from <device>"),
         ),
-        "status": _page(
-            "status",
+        "locate": _page(
+            "locate",
             _p(
-                "Your situation in the multiverse: who you are, place, place VEN, "
-                "realm, timeline, coords (realm / timeline), exit count, and inventory. "
-                "status, sit, situation, whereami, and where are the same command."
+                "Where something is in the multiverse. "
+                "Today: locate self (or bare locate) shows who you are, place, "
+                "place VEN, realm, timeline, coords, paths count, and inventory. "
+                "Later: locate by VEN code or short ref to list instance positions."
             ),
             fmt.section("Usage"),
-            fmt.example_line("status"),
-            fmt.example_line("sit", "Alias"),
-            fmt.example_line("whereami", "Alias (same output)"),
-            fmt.example_line("where", "Alias"),
-            fmt.example_line("timeline here", "Also shows this status block"),
+            fmt.example_line("locate self", "Avatar where-now"),
+            fmt.example_line("locate", "Same as locate self"),
+            fmt.example_line(
+                "locate THG-001",
+                "Later — instances of that prime / code",
+            ),
+            fmt.example_line("timeline here", "Also shows locate self"),
             fmt.section("Change layers"),
             fmt.example_line("timeline set SHATTERED"),
             fmt.example_line("realm set MEMORY-ARCHIVE"),
             fmt.hint(
+                "Temporary aliases: status · sit · whereami · where → locate self. "
+                "Prefer locate."
+            ),
+            fmt.hint(
                 "In the plain REPL, a short strip above the prompt echoes you @ place + coords."
             ),
-            _p("Press ↑ / ↓ in the prompt to step through previous commands."),
         ),
         "exits": _page(
             "paths",
@@ -815,14 +821,14 @@ def _init_topics() -> None:
                 "Assign a thing here (or unique place) to a timeline",
             ),
             fmt.example_line("timeline clear", "Remove timeline from current place"),
-            fmt.example_line("timeline here", "Same as status / sit"),
+            fmt.example_line("timeline here", "Same as locate self"),
             fmt.section("Review current layer"),
             fmt.example_line("lore on timeline", "List lore on this place's timeline"),
             fmt.example_line("examine timeline", "Desc + meta for the layer"),
             fmt.example_line("@desc on timeline", "Show/set timeline description"),
             fmt.section("See also"),
             fmt.example_line("realm list"),
-            fmt.example_line("status", "You / place / layers / inv"),
+            fmt.example_line("locate self", "You / place / layers / inv"),
             fmt.example_line("help realm"),
         ),
         "realm": _page(
@@ -846,7 +852,7 @@ def _init_topics() -> None:
             fmt.example_line("@desc on realm", "Show/set realm description"),
             fmt.section("See also"),
             fmt.example_line("help timeline"),
-            fmt.example_line("status"),
+            fmt.example_line("locate self"),
         ),
         "link": _page(
             "link",
@@ -993,9 +999,10 @@ def _init_topics() -> None:
         "clear": _page(
             "clear",
             _p(
-                "Wipe the session transcript so the screen is not buried under "
-                "long builder history. In the TUI this clears the world log; in "
-                "the plain REPL it clears the terminal when possible."
+                "Wipe the session transcript to a blank log — no tips banner, "
+                "no “cleared” notice. In the TUI this empties the world log; in "
+                "the plain REPL it clears the terminal when possible. "
+                "The studio header bar (place / seed) stays; only the scrollback goes."
             ),
             fmt.section("Usage"),
             fmt.example_line("clear"),

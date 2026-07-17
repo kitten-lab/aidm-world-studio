@@ -318,7 +318,7 @@ def _studio_boot_banner_markup(world_path: Path, world_name: str) -> str:
     _ = world_path, world_name
     return (
         f"[dim]help / ? or F1 = help pane  ·  folio open = reader (←/→ · + leaf · e edit)[/dim]\n"
-        f"[dim]↑ / ↓ previous commands · status for situation · clear / clr[/dim]\n"
+        f"[dim]↑ / ↓ previous commands · locate self · clear / clr[/dim]\n"
     )
 
 
@@ -343,7 +343,7 @@ def _studio_boot_panel(world_path: Path, world_name: str) -> Panel:
     return Panel(
         f"[bold]{PRODUCT_NAME}[/bold]  [dim]|[/dim]  [dim]{fmt.safe(file_label)}[/dim]\n\n"
         f"{flavor_line}"
-        f"[dim]try[/dim]    look · status · undo · help · clear\n"
+        f"[dim]try[/dim]    look · locate self · undo · help · clear\n"
         f"[dim]↑[/dim]       previous commands  ·  "
         f"[dim]tui[/dim]  python -m world_studio --textual",
         border_style="dim",
@@ -353,8 +353,13 @@ def _studio_boot_panel(world_path: Path, world_name: str) -> Panel:
     )
 
 
-def _clear_repl_screen(world_path: Path | None = None, world_name: str | None = None) -> None:
-    """Best-effort clear for plain REPL, then restore studio header when known."""
+def _clear_repl_screen(
+    world_path: Path | None = None,
+    world_name: str | None = None,
+    *,
+    restore_banner: bool = False,
+) -> None:
+    """Best-effort clear for plain REPL. Banner only if restore_banner (boot)."""
     import os
     import sys
 
@@ -367,7 +372,11 @@ def _clear_repl_screen(world_path: Path | None = None, world_name: str | None = 
             sys.stdout.flush()
     except OSError:
         console.print("\n" * 40)
-    if world_path is not None and world_name is not None:
+    if (
+        restore_banner
+        and world_path is not None
+        and world_name is not None
+    ):
         console.print()
         console.print(_studio_boot_panel(world_path, world_name))
         console.print()
@@ -464,7 +473,9 @@ def run_repl(world: World, world_path: Path) -> None:
             if result.message:
                 console.print()  # blank after command / editor before result
                 console.print(result.message)
-            console.print(fmt.turn_separator())
+                console.print(fmt.turn_separator())
+            elif not result.clear_log:
+                console.print(fmt.turn_separator())
             if result.quit:
                 break
             continue
@@ -475,7 +486,9 @@ def run_repl(world: World, world_path: Path) -> None:
         if result.message:
             console.print()  # blank after typed command before result
             console.print(result.message)
-        console.print(fmt.turn_separator())
+            console.print(fmt.turn_separator())
+        elif not result.clear_log:
+            console.print(fmt.turn_separator())
         if result.quit:
             break
 
@@ -783,13 +796,9 @@ def run_textual(world: World, world_path: Path) -> None:
                 self._refresh_help_pane()
 
         def _clear_world_log(self, log: RichLog) -> None:
-            """Wipe transcript and restore the boot system header."""
+            """Wipe transcript only — no tips banner (clr wants a blank log)."""
             log.clear()
             self._turn = 0
-            wname = (
-                get_meta(world.conn, "world_name", world_path.name) or world_path.name
-            )
-            log.write(_studio_boot_banner_markup(world_path, wname))
 
         def _write_world_turn(
             self,
@@ -802,6 +811,10 @@ def run_textual(world: World, world_path: Path) -> None:
             """World log only — never full help manuals."""
             if clear_log:
                 self._clear_world_log(log)
+            # Pure clear/clr: blank log, no › echo, no separator
+            if clear_log and not (message or "").strip():
+                self._refresh_studio_header()
+                return
             if self._turn > 0:
                 # One compact rule line only — no blank-line padding around it
                 log.write(fmt.turn_separator())

@@ -3,7 +3,7 @@
 **Doctrine and design intent**, not a changelog and not a promise to build everything listed.  
 Captured so plans live in the **repo** (open in VS), not only in AI chat.
 
-*Last updated: 2026-07-16 (history backbone shipped; extended time concepts parked below)*
+*Last updated: 2026-07-16 (history + locate self; extended time concepts parked below)*
 
 ---
 

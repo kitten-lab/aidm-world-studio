@@ -18,7 +18,8 @@ Review occasionally; promote an item only when it beats “expand the engine aga
 - **Help display** — how help is shown (pane, index, word choice, discoverability)
 - **Action vocabulary** — keep refining verbs/labels (e.g. Ways vs Exits); consistency over novelty
 - **Catalog lists** — extend the realm/vens mini-table polish to more lists only when it helps scanning
-- **Word choices in status / hints** — quieter, clearer, less builder-noise
+- **Word choices in hints** — quieter, clearer, less builder-noise
+- **`locate <code|name>`** — find instance positions by VEN code / short ref / name (today only `locate self`); retire temporary `status`/`whereami` aliases when this lands
 - **Content measure 72** — **phase 1 shipped:** `CONTENT_MEASURE`, ASCII turn HR, book `PAGE_VIEW_WIDTH`, studio ruler
 - **Book reader modal (soft)** — **shipped:** full-width soft-dim reader; leaves; ←/→; Esc; `e` edit; `+` add leaf
 - **Leaf title in singular studio** — **shipped:** Title field above body (`e` / `book page edit … <<studio`)
