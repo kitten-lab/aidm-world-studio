@@ -78,6 +78,15 @@ class FlagCreateSpawnTests(unittest.TestCase):
         self.assertIn("@3", plain(r.message))
         self.assertIn("Hiking Stick", plain(r.message))
 
+    def test_spawn_short_as_flag(self) -> None:
+        self.assertTrue(
+            dispatch(self.world, "create --type thing --name Twig --desc dry.").ok
+        )
+        r = dispatch(self.world, "spawn --ven twig -a Walking Twig -w 1")
+        self.assertTrue(r.ok, msg=r.message)
+        self.assertIn("Walking Twig", plain(r.message))
+        self.assertIn("@1", plain(r.message))
+
     def test_legacy_still_works(self) -> None:
         r = dispatch(self.world, "create thing Old Form | yes. when @1")
         self.assertTrue(r.ok, msg=r.message)

@@ -210,7 +210,8 @@ Authoring the world’s past **from the craft present** is normal. The tool must
    - **take** (floor) / **drop** → place + player (Builder)  
    - **spawn** (non-place) → place `receive` on floor  
    Optional **`when @N`** / **`--when N`**.  
-7. **Shared event codes (`HST-NNN`):** every leg of one act shares one code so hope’s put and the vessel’s receive are the same event. **`history HST-001`** lists all legs. Displayed on each history line.
+7. **Shared event codes (`HST-NNN`):** every leg of one act shares one code so hope’s put and the vessel’s receive are the same event. **`history HST-001`** lists all legs. Displayed on each history line.  
+8. **`retime HST-NNN when @N`:** rewrite story when on **all legs** of an event after the fact (fix mistakes / refine beats). Craft `created_at` unchanged. **undo** restores prior stamps.
 
 Code: `timeline_nodes`, `history_entries.event_code`, `story_when.py`, `help history` / take / drop / put.
 

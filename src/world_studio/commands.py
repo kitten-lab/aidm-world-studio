@@ -50,11 +50,11 @@ class CommandResult:
 # Short index shown by bare help / ?  (detail via help <term>)
 HELP = render_help_index()
 
-# Creator-tool shorthand (dot namespace). Long form create/spawn stay canonical.
-# Other domains should use a different punctuation prefix so letters don't collide.
+# Creator-tool shorthand (slash namespace, like dialog /fin). Long form stays.
+# Other domains can use /letter without colliding with create/spawn words.
 _CREATOR_SHORTHAND: dict[str, str] = {
-    ".c": "create",
-    ".s": "spawn",
+    "/c": "create",
+    "/s": "spawn",
 }
 
 
@@ -148,6 +148,8 @@ def dispatch(world: World, line: str) -> CommandResult:
             return CommandResult(True, _instances(world, arg))
         if cmd == "history":
             return CommandResult(True, _history(world, arg))
+        if cmd in ("retime", "retimes", "when-set"):
+            return CommandResult(True, _retime(world, arg))
         if cmd == "put":
             return CommandResult(True, _put(world, arg))
         if cmd in ("despawn", "lose"):
@@ -4091,6 +4093,71 @@ def _history(world: World, arg: str) -> str:
     )
 
 
+def _retime(world: World, arg: str) -> str:
+    """
+    retime HST-003 when @2
+    retime #HST-003 --when 0
+    retime HST-003 @unknown
+    retime HST-003 unknown
+
+    Rewrite story_when on every leg of a shared history event.
+    """
+    from .argflags import story_when_from_flag
+    from .ids import parse_history_event_code
+    from .story_when import peel_when_anywhere
+
+    raw = (arg or "").strip()
+    if not raw:
+        return fmt.hint(
+            "Usage: retime <HST-NNN> when @N  ·  retime HST-003 --when 2\n"
+            "  retime #HST-001 @unknown  ·  retime HST-001 unknown\n"
+            "  Updates every leg of that event (thing + vessel + you + place)."
+        )
+
+    rest, sw_peel, ni_peel = peel_when_anywhere(raw)
+    tokens = rest.split()
+    if not tokens:
+        return fmt.hint("Usage: retime <HST-NNN> when @N")
+
+    code_tok = tokens[0].lstrip("#")
+    code = parse_history_event_code(code_tok)
+    if not code:
+        return fmt.err(
+            f"Need a history event code (HST-001), got {tokens[0]!r}.\n"
+            + fmt.hint("List: history on <thing>  ·  history HST-001")
+        )
+
+    story_when = sw_peel
+    node_index = ni_peel
+    # Bare stamp after the code: retime HST-003 @2 | retime HST-003 2 | unknown
+    if story_when == "@unknown" and node_index is None and len(tokens) >= 2:
+        stamp = " ".join(tokens[1:]).strip()
+        story_when, node_index = story_when_from_flag(stamp)
+    elif story_when == "@unknown" and node_index is None and len(tokens) == 1:
+        return fmt.hint(
+            f"Usage: retime {code} when @N  ·  retime {code} --when 0  ·  "
+            f"retime {code} @unknown"
+        )
+
+    try:
+        code, n, prior = world.retime_history_event(
+            code, story_when=story_when, node_index=node_index
+        )
+    except ValueError as e:
+        return fmt.err(str(e))
+
+    def undo_retime(w: World, priors: list[dict] = prior) -> None:
+        w.restore_history_event_times(priors)
+
+    old = prior[0]["story_when"] if prior else "?"
+    world.undo_stack.push(f"retime {code}", undo_retime)
+    rows = world.history_for_event(code)
+    new_sw = (rows[0]["story_when"] if rows else story_when) or story_when
+    return fmt.ok(
+        f"Retimed · {code}  ·  {old} → {new_sw}  ·  {n} leg(s)  ·  undo"
+    )
+
+
 def _parse_create_of(
     world: World, rest: str
 ) -> tuple[str, str, str | None]:
@@ -4283,7 +4350,7 @@ def _spawn_usage() -> str:
     return (
         "Usage (flags, free order):\n"
         "  spawn --ven field-notes --as Ritual Notes --when 2\n"
-        "  Short: -n for title also works as --as  ·  --when 0 or --when unknown\n"
+        "  Short: -a / --as title  ·  -n also title  ·  -w when  ·  --when unknown\n"
         "Legacy: spawn <ven> [as <title>] [when @N]\n"
         "  Places: create place Room  ·  spawn room as Kitchen  ·  link …"
     )
@@ -4434,7 +4501,7 @@ def _spawn(world: World, arg: str) -> str:
             ),
             fmt.hint(
                 f"Link:  link <exit> -> {title} both  ·  "
-                f"instances {prime_bit}  ·  rename later"
+                f"instances {prime_bit}"
             ),
             gap=0,
         )
@@ -4444,9 +4511,6 @@ def _spawn(world: World, arg: str) -> str:
         fmt.hint(
             f"{label}  ·  prime {prime_bit}  ·  {where}  ·  "
             f"story {story_when}  ·  {event_code}  ·  {inst_id}"
-        ),
-        fmt.hint(
-            f"Rename later: rename <match> as <title>  ·  list: instances {prime_bit}"
         ),
         gap=0,
     )

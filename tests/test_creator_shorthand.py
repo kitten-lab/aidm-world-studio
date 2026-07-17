@@ -1,4 +1,4 @@
-"""Creator-tool shorthand: .c → create, .s → spawn."""
+"""Creator-tool shorthand: /c → create, /s → spawn."""
 
 from __future__ import annotations
 
@@ -25,21 +25,21 @@ class CreatorShorthandTests(unittest.TestCase):
     def setUp(self) -> None:
         self.world = _world()
 
-    def test_dot_c_create(self) -> None:
-        r = dispatch(self.world, ".c material Test Filament | Thin test.")
+    def test_slash_c_create(self) -> None:
+        r = dispatch(self.world, "/c material Test Filament | Thin test.")
         self.assertTrue(r.ok, r.message)
         msg = plain(r.message)
         self.assertIn("Test Filament", msg)
 
-    def test_dot_s_spawn(self) -> None:
+    def test_slash_s_spawn(self) -> None:
         self.assertTrue(dispatch(self.world, "create object Shorthand Box").ok)
-        r = dispatch(self.world, ".s shorthand-box as Pocket Box")
+        r = dispatch(self.world, "/s shorthand-box as Pocket Box")
         self.assertTrue(r.ok, r.message)
         msg = plain(r.message)
         self.assertIn("Pocket Box", msg)
 
-    def test_dot_c_usage_when_bare(self) -> None:
-        r = dispatch(self.world, ".c")
+    def test_slash_c_usage_when_bare(self) -> None:
+        r = dispatch(self.world, "/c")
         self.assertTrue(r.ok)
         msg = plain(r.message)
         self.assertTrue(
@@ -47,10 +47,15 @@ class CreatorShorthandTests(unittest.TestCase):
             msg=msg,
         )
 
-    def test_help_dot_c(self) -> None:
-        r = dispatch(self.world, "help .c")
+    def test_help_slash_c(self) -> None:
+        r = dispatch(self.world, "help /c")
         self.assertTrue(r.ok)
         self.assertIn("create", plain(r.message).lower())
+
+    def test_old_dot_no_longer_shorthand(self) -> None:
+        r = dispatch(self.world, ".c material Ghost | no.")
+        self.assertFalse(r.ok)
+        self.assertIn("unknown", plain(r.message).lower())
 
 
 if __name__ == "__main__":

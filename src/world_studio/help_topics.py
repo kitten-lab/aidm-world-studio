@@ -31,11 +31,12 @@ _TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
     "link": ("link", "unlink", "delink"),
     "@desc": ("@desc", "desc"),
     "studio-text": ("studio-text", "studio", "studio text", "markup"),
-    "create": ("create", ".c"),
-    "spawn": ("spawn", ".s"),
+    "create": ("create", "/c"),
+    "spawn": ("spawn", "/s"),
     "rename": ("rename", "call"),
     "instances": ("instances", "inst"),
     "history": ("history", "hist"),
+    "retime": ("retime", "retimes", "when-set"),
     "put": ("put",),
     "despawn": ("despawn", "lose", "reclaim", "lost"),
     "elevate": ("elevate",),
@@ -126,11 +127,12 @@ _HELP_INDEX_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
     (
         "CREATOR TOOLS",
         [
-            ("create", "Prime VEN · roots + kind/subtype (.c)"),
-            ("spawn", "Instance a VEN; prefer: spawn x as Title (.s)"),
+            ("create", "Prime VEN · roots + kind/subtype (/c)"),
+            ("spawn", "Instance a VEN; prefer: spawn x as Title (/s)"),
             ("rename", "Retitle thing or place: rename here as …"),
             ("instances", "List all copies of a prime VEN"),
             ("history", "Story when @N / @unknown · life of item"),
+            ("retime", "Fix story when on an HST event (all legs)"),
             ("despawn", "Lose instance to Lost Dept · reclaim · lost"),
             ("elevate", "Instance → new prime (rebind + parent lineage)"),
         ],
@@ -1112,12 +1114,45 @@ def _init_topics() -> None:
             fmt.example_line("history me", "You (Builder) — takes, drops, puts"),
             fmt.example_line("history on hope", "One instance (spawn + moves)"),
             fmt.example_line("history HST-003", "All legs of one event"),
+            fmt.example_line(
+                "retime HST-003 when @1",
+                "Rewrite story when on every leg",
+            ),
             fmt.example_line("history ven Quill", "Prime VEN"),
             fmt.hint(
                 "Omitted when → @unknown (not the item's create time). "
                 "Each act gets its own craft timestamp + shared HST code. "
-                "Bags/visit later."
+                "Fix a stamp later: retime HST-NNN when @N. Bags/visit later."
             ),
+        ),
+        "retime": _page(
+            "retime",
+            _p(
+                "Change the story-when stamp on an existing history event. "
+                "Every leg that shares the HST code (thing, vessel, you, place) "
+                "updates together. Craft time (created_at) is not changed — only "
+                "story when (@N or @unknown). Ensures timeline nodes when needed."
+            ),
+            fmt.section("Usage"),
+            fmt.example_line(
+                "retime HST-003 when @2",
+                "All legs of HST-003 → story @2",
+            ),
+            fmt.example_line(
+                "retime #HST-003 --when 0",
+                "Hash prefix optional",
+            ),
+            fmt.example_line(
+                "retime HST-003 @unknown",
+                "Clear story node",
+            ),
+            fmt.example_line(
+                "retime HST-003 unknown",
+                "Same as @unknown",
+            ),
+            fmt.example_line("history HST-003", "Confirm all legs"),
+            fmt.example_line("undo", "Restore previous stamps on those legs"),
+            fmt.hint("See also: help history"),
         ),
         "spawn": _page(
             "spawn",
@@ -1134,8 +1169,8 @@ def _init_topics() -> None:
                 "Prime · lived title · story node",
             ),
             fmt.example_line(
-                "spawn -n Pocket Notes --ven field-notes -w 0",
-                "--name / -n same as --as for title",
+                "spawn --ven field-notes -a Pocket Notes -w 0",
+                "-a short for --as (title also: -n / --name)",
             ),
             fmt.section("Legacy (still works)"),
             fmt.example_line(
@@ -1143,7 +1178,7 @@ def _init_topics() -> None:
                 "Lived copy · story when",
             ),
             fmt.example_line(
-                ".s <prime> as Title",
+                "/s <prime> as Title",
                 "Maker shorthand",
             ),
             fmt.example_line(

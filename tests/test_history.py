@@ -281,6 +281,53 @@ class HistoryCommandTests(unittest.TestCase):
             )
         )
 
+    def test_retime_updates_all_legs(self) -> None:
+        self.assertTrue(
+            dispatch(self.world, "create thing Retime Coin | metal.").ok
+        )
+        self.assertTrue(
+            dispatch(self.world, "spawn retime-coin as Coin").ok
+        )
+        r = dispatch(self.world, "take coin")
+        self.assertTrue(r.ok, msg=r.message)
+        # Extract HST code from ok message
+        msg = plain(r.message)
+        import re
+
+        m = re.search(r"HST-\d+", msg)
+        self.assertIsNotNone(m, msg=msg)
+        code = m.group(0)
+
+        legs = self.world.history_for_event(code)
+        self.assertGreaterEqual(len(legs), 2)
+        for leg in legs:
+            self.assertEqual(leg["story_when"], "@unknown")
+
+        rt = dispatch(self.world, f"retime {code} when @5")
+        self.assertTrue(rt.ok, msg=rt.message)
+        self.assertIn("@5", plain(rt.message))
+        legs2 = self.world.history_for_event(code)
+        self.assertEqual(len(legs2), len(legs))
+        for leg in legs2:
+            self.assertEqual(leg["story_when"], "@5")
+            self.assertEqual(leg["node_index"], 5)
+
+        # Hash form + unknown clear
+        rt2 = dispatch(self.world, f"retime #{code} @unknown")
+        self.assertTrue(rt2.ok, msg=rt2.message)
+        for leg in self.world.history_for_event(code):
+            self.assertEqual(leg["story_when"], "@unknown")
+            self.assertIsNone(leg["node_index"])
+
+        # undo restores prior (the @5 stamps from before clear)
+        self.assertTrue(dispatch(self.world, "undo").ok)
+        for leg in self.world.history_for_event(code):
+            self.assertEqual(leg["story_when"], "@5")
+            self.assertEqual(leg["node_index"], 5)
+
+        listed = plain(dispatch(self.world, f"history {code}").message)
+        self.assertIn("@5", listed)
+
     def test_rename_records_on_instance(self) -> None:
         player = self.world.get_instance(self.world.player_id() or "")
         assert player is not None

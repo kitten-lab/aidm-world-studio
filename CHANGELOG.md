@@ -9,6 +9,7 @@ Format: dated bullets, one line each — what landed, not a full story.
 
 ## 2026-07-16
 
+- **retime:** `retime HST-NNN when @N` (or `--when` / bare `@N` / `unknown`) rewrites story when on every leg of that event; undo restores prior stamps
 - **History where:** each row stores place + realm + timeline ids and snapshotted names; list lines show `Place · Realm / Timeline`
 - **Rename history:** `rename` / `call` writes a `rename` life-of-item row on the instance (`Old → New`, optional `when @N` / `--when`, shared `HST-…`)
 - **History event codes:** shared `HST-NNN` on all legs of one act; `history HST-001` / `history event …` lists every subject; lines show the code

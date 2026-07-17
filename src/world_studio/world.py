@@ -1492,6 +1492,90 @@ class World:
             (code,),
         ).fetchall()
 
+    def retime_history_event(
+        self,
+        event_code: str,
+        *,
+        story_when: str = "@unknown",
+        node_index: int | None = None,
+    ) -> tuple[str, int, list[dict]]:
+        """
+        Set story_when / node_index on every leg of a shared history event.
+
+        Returns (canonical event_code, rows_updated, prior_legs) where each
+        prior leg is ``{id, story_when, node_index}`` for undo.
+        """
+        code = (event_code or "").strip().upper()
+        if not code:
+            raise ValueError("event_code required")
+        rows = self.history_for_event(code)
+        if not rows:
+            raise ValueError(f"No history event {code}")
+        # Prefer code as stored (first row)
+        code = (rows[0]["event_code"] or code).strip().upper()
+
+        sw = (story_when or "@unknown").strip() or "@unknown"
+        if not sw.startswith("@"):
+            sw = f"@{sw}"
+        if sw.lower() == "@unknown":
+            sw = "@unknown"
+            ni: int | None = None
+        else:
+            if node_index is not None:
+                ni = int(node_index)
+                sw = f"@{ni}"
+            elif sw[1:].isdigit():
+                ni = int(sw[1:])
+                sw = f"@{ni}"
+            else:
+                sw = "@unknown"
+                ni = None
+
+        prior: list[dict] = []
+        timeline_ids: set[str] = set()
+        for r in rows:
+            prior.append(
+                {
+                    "id": r["id"],
+                    "story_when": r["story_when"] or "@unknown",
+                    "node_index": r["node_index"],
+                }
+            )
+            tl = r["timeline_instance_id"]
+            if tl and ni is not None:
+                timeline_ids.add(tl)
+
+        for tl_id in timeline_ids:
+            self.ensure_timeline_node(tl_id, ni)  # type: ignore[arg-type]
+
+        self.conn.execute(
+            """
+            UPDATE history_entries
+            SET story_when = ?, node_index = ?
+            WHERE upper(event_code) = ?
+            """,
+            (sw, ni, code),
+        )
+        self.conn.commit()
+        return code, len(rows), prior
+
+    def restore_history_event_times(self, priors: list[dict]) -> None:
+        """Undo a retime: restore per-row story_when / node_index from prior list."""
+        for p in priors:
+            self.conn.execute(
+                """
+                UPDATE history_entries
+                SET story_when = ?, node_index = ?
+                WHERE id = ?
+                """,
+                (
+                    p.get("story_when") or "@unknown",
+                    p.get("node_index"),
+                    p["id"],
+                ),
+            )
+        self.conn.commit()
+
     # ── Text editor save history (<< / <<studio) ─────────────────────────
 
     def add_text_revision(

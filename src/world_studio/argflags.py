@@ -23,6 +23,7 @@ _FLAG_ALIASES: dict[str, str] = {
     "of": "of",
     "parent": "of",
     "as": "as",
+    "a": "as",
     "title": "as",
     "ven": "ven",
     "prime": "ven",
