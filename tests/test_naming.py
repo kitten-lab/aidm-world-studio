@@ -14,6 +14,7 @@ from world_studio.ids import (
     cute_name,
     display_name,
     is_cute_name,
+    names_match,
     normalize_formal_name,
     normalize_instance_title,
 )
@@ -48,6 +49,17 @@ class CuteNameUnitTests(unittest.TestCase):
             cute_name("Hall of Shelved Years (Shattered)"),
             "HALL-OF-SHELVED-YEARS-SHATTERED",
         )
+
+    def test_names_match_whole_token_not_substring(self) -> None:
+        # whole token still works (take silver → Silver Thread)
+        self.assertTrue(names_match("silver", "Silver Thread"))
+        self.assertTrue(names_match("Silver Thread", "SILVER-THREAD"))
+        self.assertTrue(names_match("field notes", "Field Notes"))
+        # game code: q1 must not partial-hit Q1G1
+        self.assertFalse(names_match("q1", "Q1G1"))
+        self.assertFalse(names_match("Q1", "Q1G1 Schedule"))
+        self.assertTrue(names_match("Q1G1", "Q1G1"))
+        self.assertTrue(names_match("q1g1", "Q1G1 Schedule"))  # whole token
         self.assertTrue(is_cute_name("SILVER-THREAD"))
         self.assertFalse(is_cute_name("Silver Thread"))
 

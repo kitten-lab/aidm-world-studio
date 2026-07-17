@@ -302,9 +302,23 @@ def _layer_name_markup(name: str | None, kind: str) -> str:
     return fmt.colored_name(display_name(n), kind)
 
 
+def _kind_subtype_trailer(inst: InstanceView) -> str:
+    """
+    Kind chip for look/examine headers.
+
+    When a subtype exists: ``place: app`` (colon, readable).
+    Otherwise bare kind: ``place``.
+    """
+    kind = (inst.ven_kind or "other").strip() or "other"
+    sub = (inst.ven_subtype or "").strip()
+    if sub:
+        return f"{kind}: {sub}"
+    return kind
+
+
 def _instance_context_details(world: World, inst: InstanceView) -> str:
-    """kind[/subtype] | realm | timeline — trailer after a location name."""
-    kind_lbl = format_kind_label(inst.ven_kind, inst.ven_subtype)
+    """kind[: subtype] | realm | timeline — trailer after a location name."""
+    kind_lbl = _kind_subtype_trailer(inst)
     coords = world.coords_of(inst)
     r = _layer_name_markup(coords.get("realm_name"), "realm")
     t = _layer_name_markup(coords.get("timeline_name"), "timeline")
@@ -319,6 +333,7 @@ def _location_header_line(world: World, inst: InstanceView) -> str:
     """
     Single look lead-in::
 
+        Location: Place Name · place: app  |  Realm  |  Timeline
         Location: Place Name · place  |  Realm  |  Timeline
     """
     name = fmt.title_line(inst.name, kind="place")
@@ -594,10 +609,23 @@ def _portal(world: World, arg: str) -> str:
     return fmt.join_blocks(
         fmt.ok(f"Portal · {display_name(app.name)} → {display_name(dest.name)}"),
         fmt.hint(
-            f"Install: put {app.name} in <device>  ·  "
-            f"Travel: run {app.name} from <device>"
+            f"Binding lives on the app (survives take/drop).  "
+            f"Install: put/install {app.name} in <device>  ·  "
+            f"Travel: run {app.name}  ·  Clear: portal clear {app.name}"
         ),
         gap=0,
+    )
+
+
+def _portal_binding_hint(world: World, thing: InstanceView) -> str | None:
+    """If *thing* has a portal, dim note that the link still holds after move."""
+    dest_id = world.get_portal_to(thing.id)
+    if not dest_id:
+        return None
+    dest = world.get_instance(dest_id)
+    dname = display_name(dest.name) if dest else "bound place"
+    return fmt.hint(
+        f"portal still → {dname}  ·  install to run  ·  portal clear to unbind"
     )
 
 
@@ -977,10 +1005,16 @@ def _take(world: World, arg: str) -> str:
             if player
             else None,
         )
-        return fmt.ok(
+        # Re-read instance (still same id; portal on state_json is unchanged)
+        moved = world.get_instance(thing.id) or thing
+        ok_line = (
             f"Taken · {thing.name}  from  {cont.name}  ·  "
             f"story {story_when}  ·  {code}"
         )
+        portal_h = _portal_binding_hint(world, moved)
+        if portal_h:
+            return fmt.join_blocks(fmt.ok(ok_line), portal_h, gap=0)
+        return fmt.ok(ok_line)
 
     # take from floor
     thing = world.resolve_here_named(arg)
@@ -5241,14 +5275,35 @@ def _put(world: World, arg: str) -> str:
         extra_legs=extra or None,
     )
     if cont.ven_kind == "place":
-        return fmt.ok(
+        main = (
             f"Moved · {thing.name} → {cont.name}  ·  "
             f"story {story_when}  ·  {code}"
         )
-    return fmt.ok(
-        f"Put · {thing.name} in {cont.name} [{slot}]  ·  "
-        f"story {story_when}  ·  {code}"
-    )
+    else:
+        main = (
+            f"Put · {thing.name} in {cont.name} [{slot}]  ·  "
+            f"story {story_when}  ·  {code}"
+        )
+    # Installed into a device with a living portal → ready to run (no re-bind)
+    moved = world.get_instance(thing.id) or thing
+    portal_id = world.get_portal_to(moved.id)
+    if (
+        portal_id
+        and cont.ven_kind != "place"
+        and (player is None or cont.id != player.id)
+        and world.install_container_of(moved.id) is not None
+    ):
+        dest = world.get_instance(portal_id)
+        dname = display_name(dest.name) if dest else "bound place"
+        return fmt.join_blocks(
+            fmt.ok(main),
+            fmt.hint(
+                f"portal → {dname}  ·  run {display_name(moved.name)} "
+                f"(binding kept)"
+            ),
+            gap=0,
+        )
+    return fmt.ok(main)
 
 
 def _elevate(world: World, arg: str) -> str:

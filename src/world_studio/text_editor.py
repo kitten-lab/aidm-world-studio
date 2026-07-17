@@ -2,7 +2,7 @@
 
 Opens a Textual TextArea (or optional $WORLD_STUDIO_EDITOR / $EDITOR) so the
 builder can move freely, edit, save (Ctrl+S) or cancel (Esc / Ctrl+Q).
-Ctrl+X is left free for cut (not cancel).
+Ctrl+A selects all; Ctrl+X is left free for cut (not cancel).
 
 Tests inject :data:`_EDITOR_HOOK` to return a body without launching a TUI.
 """
@@ -93,6 +93,7 @@ def run_text_editor(
     External editors / test hooks only return body (title stays *page_title*).
 
     Cancel: Esc or Ctrl+Q (not Ctrl+X — that is cut).
+    Select all: Ctrl+A.
     """
     if _EDITOR_HOOK is not None:
         body = _EDITOR_HOOK(initial, title, studio)
@@ -274,7 +275,7 @@ def _editor_hint_markup(
     return (
         f"[bold #d4a574]{STUDIO_WRITER_LABEL}[/]  ·  "
         f"[bold]{title}[/bold]  ·  {mode}{measure_note}{title_note}  ·  "
-        f"Ctrl+S save  ·  Esc / Ctrl+Q cancel"
+        f"Ctrl+A select all  ·  Ctrl+S save  ·  Esc / Ctrl+Q cancel"
     )
 
 
@@ -310,6 +311,7 @@ def make_studio_buffer_screen(
     class StudioBufferScreen(ModalScreen[StudioBufferResult | None]):
         CSS = EDITOR_CSS
         BINDINGS = [
+            Binding("ctrl+a", "select_all", "Select all", show=True, priority=True),
             Binding("ctrl+s", "save", "Save", show=True, priority=True),
             Binding("ctrl+q", "cancel", "Cancel", show=True, priority=True),
             Binding("escape", "cancel", "Cancel", show=True, priority=True),
@@ -348,6 +350,11 @@ def make_studio_buffer_screen(
         def on_mount(self) -> None:
             _mount_editor_body(self, initial or "")
 
+        def action_select_all(self) -> None:
+            ta = self.query_one("#editor-body", TextArea)
+            ta.focus()
+            ta.select_all()
+
         def action_save(self) -> None:
             ta = self.query_one("#editor-body", TextArea)
             text = ta.text
@@ -373,7 +380,7 @@ def _run_textual_editor(
     studio: bool,
     page_title: str | None = None,
 ) -> StudioBufferResult | None:
-    """Blocking Textual app with TextArea; Ctrl+S save, Esc / Ctrl+Q cancel."""
+    """Blocking Textual app with TextArea; Ctrl+A select all, Ctrl+S save, Esc / Ctrl+Q cancel."""
     from textual.app import App, ComposeResult
     from textual.binding import Binding
     from textual.containers import Horizontal
@@ -388,6 +395,7 @@ def _run_textual_editor(
             + EDITOR_CSS
         )
         BINDINGS = [
+            Binding("ctrl+a", "select_all", "Select all", show=True, priority=True),
             Binding("ctrl+s", "save", "Save", show=True, priority=True),
             Binding("ctrl+q", "cancel", "Cancel", show=True, priority=True),
             Binding("escape", "cancel", "Cancel", show=True, priority=True),
@@ -427,6 +435,11 @@ def _run_textual_editor(
         def on_mount(self) -> None:
             self.title = title
             _mount_editor_body(self, initial or "")
+
+        def action_select_all(self) -> None:
+            ta = self.query_one("#editor-body", TextArea)
+            ta.focus()
+            ta.select_all()
 
         def action_save(self) -> None:
             ta = self.query_one("#editor-body", TextArea)

@@ -306,8 +306,9 @@ def _format_numbered_studio_lines(
         _FENCE_CLOSE_RE,
         _FENCE_OPEN_RE,
         _HEADING_RE,
-        _LABEL_ROW_RE,
         _RULE_RE,
+        _field_row_match,
+        _label_col_width,
         _render_heading,
         _render_inline,
         format_fence_box_parts,
@@ -320,6 +321,26 @@ def _format_numbered_studio_lines(
         lines = lines[:-1]
     if not lines or (len(lines) == 1 and not lines[0].strip()):
         return "[dim](empty page)[/dim]"
+
+    # Contiguous field blocks share one key column width (aligned values)
+    field_col: dict[int, int] = {}
+    fi = 0
+    while fi < len(lines):
+        if _field_row_match(lines[fi]) is None:
+            fi += 1
+            continue
+        labs: list[str] = []
+        fj = fi
+        while fj < len(lines):
+            fr = _field_row_match(lines[fj])
+            if fr is None:
+                break
+            labs.append(fr[0])
+            fj += 1
+        col_w = _label_col_width(labs)
+        for k in range(fi, fj):
+            field_col[k] = col_w
+        fi = fj
 
     num_w = max(2, len(str(len(lines))))
     hang = gutter_prefix_width(num_w)
@@ -394,12 +415,13 @@ def _format_numbered_studio_lines(
                 else:
                     out.append(f"{' ' * hang}{piece}")
             continue
-        lm = _LABEL_ROW_RE.match(line)
-        if lm:
-            lab, val = lm.group(1).strip(), lm.group(2)
-            lab_s = safe(lab).ljust(12)
+        fr = _field_row_match(line)
+        if fr is not None:
+            lab, val = fr
+            col_w = field_col.get(i - 1, _label_col_width([lab]))
+            lab_s = safe(lab).ljust(col_w)
             # First segment carries the label; wrap value with hang
-            prefix_plain = f"{lab.ljust(12)}  "
+            prefix_plain = f"{lab.ljust(col_w)}  "
             segs = wrap_text_hanging(val, max(8, content_w - len(prefix_plain)))
             for j, seg in enumerate(segs):
                 if j == 0:

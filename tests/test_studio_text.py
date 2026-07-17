@@ -121,6 +121,35 @@ literal line
         self.assertIn("└", p)
         self.assertIn("│", p)
 
+    def test_field_rows_align_value_column(self) -> None:
+        """Contiguous :Key: value (and bare Key: value) share one pad width."""
+        src = """\
+:Design start: 2024-01-03
+:QA: 2024-06-01
+:Release: 2024-07-15
+Art: 2024-03-01
+"""
+        p = plain(render_studio_text(src))
+        lines = [ln for ln in p.splitlines() if ln.strip()]
+        self.assertGreaterEqual(len(lines), 3)
+        # Value column starts at the same index for the :Key: block
+        # (after padded key + two spaces)
+        def val_col(line: str, key: str) -> int:
+            i = line.index(key)
+            # skip key and following spaces to first non-space of value
+            j = i + len(key)
+            while j < len(line) and line[j] == " ":
+                j += 1
+            return j
+
+        c0 = val_col(lines[0], "Design start")
+        c1 = val_col(lines[1], "QA")
+        c2 = val_col(lines[2], "Release")
+        self.assertEqual(c0, c1)
+        self.assertEqual(c1, c2)
+        self.assertIn("2024-01-03", lines[0])
+        self.assertIn("Art", lines[3])
+
     def test_unnamed_fence_seed_box(self) -> None:
         out = render_studio_text("before\n```\ncode here\n```\nafter")
         p = plain(out)

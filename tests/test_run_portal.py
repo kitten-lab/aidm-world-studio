@@ -59,11 +59,8 @@ class RunPortalTests(unittest.TestCase):
         self.assertEqual(loc.ven_subtype, "app")
         look = plain(dispatch(self.world, "look").message)
         self.assertIn("Mailroom", look)
-        self.assertIn("place/app", look.lower().replace(" ", "") or look)
-        # subtype shown somehow
-        self.assertTrue(
-            "app" in look.lower() or "place/app" in plain(r.message).lower()
-        )
+        # Location trailer: place: app (subtype when present)
+        self.assertRegex(look, r"place\s*:\s*app")
 
     def test_soft_run_unique_installed(self) -> None:
         self.assertTrue(dispatch(self.world, "portal mail -> Mailroom").ok)
@@ -121,6 +118,41 @@ class RunPortalTests(unittest.TestCase):
         self.assertIsNone(self.world.get_portal_to(mail.id))
         self.assertTrue(dispatch(self.world, "undo").ok)
         self.assertIsNotNone(self.world.get_portal_to(mail.id))
+
+    def test_portal_survives_take_and_reinstall(self) -> None:
+        """Binding is on the app; take/put never require re-portal."""
+        self.assertTrue(dispatch(self.world, "portal mail -> Mailroom").ok)
+        self.assertTrue(dispatch(self.world, "put mail in terminal").ok)
+        mail = None
+        term = self.world.resolve_here_named("terminal")
+        assert term is not None
+        for c in self.world.contents(term.id):
+            if "mail" in c.name.lower():
+                mail = c
+                break
+        assert mail is not None
+        dest_id = self.world.get_portal_to(mail.id)
+        self.assertIsNotNone(dest_id)
+
+        take = dispatch(self.world, "take mail from terminal")
+        self.assertTrue(take.ok, take.message)
+        self.assertIn("portal still", plain(take.message).lower())
+        mail2 = self.world.resolve_here_named("mail")
+        assert mail2 is not None
+        self.assertEqual(self.world.get_portal_to(mail2.id), dest_id)
+        # Not installed → run fails, but link is intact
+        r_loose = dispatch(self.world, "run mail")
+        self.assertFalse(r_loose.ok)
+        self.assertIn("not installed", plain(r_loose.message).lower())
+
+        put = dispatch(self.world, "install mail in terminal")
+        self.assertTrue(put.ok, put.message)
+        self.assertIn("binding kept", plain(put.message).lower())
+        r = dispatch(self.world, "run mail")
+        self.assertTrue(r.ok, r.message)
+        loc = self.world.player_location()
+        assert loc is not None
+        self.assertIn("Mailroom", loc.name)
 
     def test_logout_returns_to_entry_not_link(self) -> None:
         origin = self.world.player_location()

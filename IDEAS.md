@@ -20,6 +20,7 @@ Review occasionally; promote an item only when it beats “expand the engine aga
 - **Catalog lists** — extend the realm/vens mini-table polish to more lists only when it helps scanning
 - **Word choices in hints** — quieter, clearer, less builder-noise
 - **`locate <code|name>`** — find instance positions by VEN code / short ref / name (today only `locate self`); retire temporary `status`/`whereami` aliases when this lands
+- **Portal link survives take/drop** — **shipped:** binding on app `state_json`; take/drop/put never clear it; only `portal clear`. UX notes on take/reinstall.
 - **Content measure 72** — **phase 1 shipped:** `CONTENT_MEASURE`, ASCII turn HR, book `PAGE_VIEW_WIDTH`, studio ruler
 - **Book reader modal (soft)** — **shipped:** full-width soft-dim reader; leaves; ←/→; Esc; `e` edit; `+` add leaf
 - **Leaf title in singular studio** — **shipped:** Title field above body (`e` / `book page edit … <<studio`)
@@ -49,6 +50,58 @@ Review occasionally; promote an item only when it beats “expand the engine aga
 
 ### Organize leaves in a book
 Reorder, remove, and otherwise organize leaves inside a BOK from the reader (or a small structure surface). Not now — add/edit/browse is enough. When promoted: stay out of singular studio; keep leaf ops on the reader.
+
+---
+
+## Parked — Office Space / Roadmaps (keep simple)
+
+**Context (2026-07-17):** Narrative **office** for telecommute product work (igaming, many titles/month). Confluence is disjointed; the bet is a *place* where roadmaps can be held and read. Greg may already have calendar-math in Python — **do not rebuild MS Project in the MUD.** Form printers / auto-calendars wait until the **in-room management shape** is clear.
+
+### Method shift: folios first (not lore-as-wiki layout)
+
+Prefer **`folio` roadmap tickets** (or folio leaves inside a title pack) for the **schedule surface**:
+
+- Edit in STUDIO Writer (`e` / `<<studio`) — already good for input.
+- **Field rows** for phase → date (aligned columns), not Confluence paste soup.
+- Board place still: put folio on board; walk Roadmaps room.
+- Lore/wiki later for *narrative* notes / rationale, not as the primary schedule grid.
+
+**Parked until a real folio roadmap feels right:** receipt/form printer; Greg import; lore reorder as the *main* roadmap layout tool.
+
+### Studio field rows (label → value column)
+
+**Dialect (studio body):**
+
+```text
+:Design start: 2024-01-03
+:Math lock:    2024-02-01
+:Art:          2024-03-15
+:Release:      2024-07-01
+```
+
+Also bare single-token keys: `Art: 2024-03-15` (space after colon required).
+
+**Display:** contiguous field lines share one **dynamic key column** (pad to longest key in the block, clamp ~8–28) so values line up — fix for fixed-12 ugliness. Frontmatter `key: value` under `---` uses the same pad idea.
+
+**Input path:** folio leaf + studio format; type fields freely; reader/look renders the column. No special “form mode” required for v1.
+
+### Lore still (secondary)
+
+| Need | Status |
+|------|--------|
+| Add lore (prose + flags `-a -t -b -w`) | **Yes** — including multiline for *new* notes |
+| Wiki Notes section | **Yes** — chronological; not author-ordered |
+| Edit existing lore | **No** |
+| Reorder lore | **No** — only promote if wiki notes become the schedule (unlikely if folios win) |
+
+### Next tool gaps (when Focus promotes)
+
+1. Live with **folio + field rows** for one real title roadmap.  
+2. Optional: field table helpers, date validation — only if typing hurts.  
+3. Lore edit/reorder only if notes-on-ticket still needed beyond the folio body.  
+4. Greg import / printer much later.
+
+**Do not:** Phase VENs for every micro-step; Confluence dump into wiki; calendar-as-truth only inside the MUD.
 
 ---
 
@@ -163,7 +216,7 @@ Reminders of recent foundations so polish builds on solid ground:
 - VEN codes (`XXX-NNN`); instance refs `CODE-0001`
 - `~/.aidm/ven-collector` · `vens export` / `ven load` (prime + instance packs)
 - Place templates: free-standing `spawn` of place primes; dig still unique primes
-- Portal `run` / `logout`; install-in-container; place subtypes
+- Portal `run` / `logout`; install-in-container; place subtypes; portal binding survives take/reinstall
 - Look buckets: Here / Things / Happened Here / Force / Also present
 - Shared-width presence rows (no per-table headers)
 - Ways: command + grouped list; look only counts (inline restore parked above)
@@ -180,4 +233,4 @@ Reminders of recent foundations so polish builds on solid ground:
 3. When shipping something from here, move a one-liner into **Shipped** or delete the parked entry.  
 4. Do not treat this as a promise to implement everything.
 
-*Last reviewed: 2026-07-16 (book reader / 72 measure / book edit session)*
+*Last reviewed: 2026-07-17 (Office/Roadmaps parked simple; lore edit + reorder as next gaps)*

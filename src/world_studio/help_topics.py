@@ -374,6 +374,9 @@ def _init_topics() -> None:
             "portal",
             _p(
                 "Bind a thing instance to a place world for run. "
+                "The binding lives on the app (state), not on the device — "
+                "take / drop / put / install never clear it; only portal clear does. "
+                "Install is presence for run, not ownership of the link. "
                 "Travel is device-scoped and never appears on the room exit list."
             ),
             fmt.section("Usage"),
@@ -383,7 +386,11 @@ def _init_topics() -> None:
                 "Game cartridge → full story place",
             ),
             fmt.example_line("portal clear mail", "Remove binding"),
-            fmt.hint("Then: put <app> in <device>  ·  run <app> from <device>"),
+            fmt.example_line(
+                "take mail from terminal  ·  install mail in terminal  ·  run mail",
+                "No re-portal needed after take",
+            ),
+            fmt.hint("Then: install <app> in <device>  ·  run / activate / use <app>"),
         ),
         "locate": _page(
             "locate",
@@ -1016,8 +1023,14 @@ def _init_topics() -> None:
             fmt.hint("``` / ```seed / ```map … ```   light box fence (ASCII art)"),
             fmt.hint("[[Name]]   pointer chip — open with wiki Name (real VEN/instance only)"),
             fmt.hint("@tag  #tag   muted chips"),
-            fmt.hint(":LABEL: value   packing-slip row"),
-            fmt.hint("Optional YAML frontmatter between --- lines (title/when/type…)"),
+            fmt.hint(
+                ":Label: value   field row — contiguous rows share a value column "
+                "(also bare Key: value)"
+            ),
+            fmt.hint(
+                "Optional YAML frontmatter between --- lines "
+                "(keys padded to one column)"
+            ),
             fmt.section("Safety"),
             _p(
                 "Unknown [brackets] and unknown {color} names in free text are escaped. "

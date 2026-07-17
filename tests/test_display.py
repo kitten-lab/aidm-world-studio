@@ -175,12 +175,13 @@ class LookDisplaySmokeTests(unittest.TestCase):
             r"Unfinished Quill\s+thing\s+Unfinished Quill",
         )
 
-    def test_resolution_still_accepts_cute_and_partial(self) -> None:
+    def test_resolution_still_accepts_whole_token(self) -> None:
         tmp = tempfile.NamedTemporaryFile(suffix=".world.db", delete=False)
         tmp.close()
         conn = connect(Path(tmp.name))
         seed_world_classic(conn)
         world = World(conn)
+        # whole token "silver" still hits "Silver Thread"
         r = dispatch(world, "take silver")
         self.assertTrue(r.ok)
         inv_r = dispatch(world, "inv")

@@ -480,7 +480,13 @@ class World:
         return dest_id or None
 
     def set_portal_to(self, instance_id: str, place_instance_id: str | None) -> None:
-        """Bind or clear object → place portal (run travel; not listed in exits)."""
+        """
+        Bind or clear object → place portal (run travel; not listed in exits).
+
+        Stored on the **app instance** ``state_json`` (not on containment).
+        take / drop / put / install never clear this — only portal clear (or
+        explicit set to None) does. Install-in-device is presence for run only.
+        """
         st = self.instance_state(instance_id)
         if place_instance_id is None:
             st.pop(PORTAL_STATE_KEY, None)
@@ -497,6 +503,7 @@ class World:
 
         Floor (place) and loose inventory (player) are not installs.
         Any other container object/person/etc. is fine (terminal, bag, …).
+        Install does **not** own the portal binding (see :meth:`set_portal_to`).
         """
         cont = self.container_of(instance_id)
         if not cont:
@@ -2552,24 +2559,15 @@ class World:
             if by_ref:
                 return by_ref
 
-        exact = [
+        # Whole-name / whole-token match only (see ids.names_match).
+        # No in-token substring: "q1" does not hit "Q1G1".
+        return [
             c
             for c in candidates
-            if cute_name(base) == cute_name(c.name)
-            or base.casefold() == c.name.casefold()
-            or cute_name(base) == cute_name(c.ven_slug)
-            or cute_name(base) == cute_name(c.ven_name)
+            if names_match(base, c.name or "")
+            or names_match(base, c.ven_slug or "")
+            or names_match(base, c.ven_name or "")
         ]
-        if exact:
-            return exact
-        partial = [
-            c
-            for c in candidates
-            if names_match(base, c.name)
-            or names_match(base, c.ven_slug)
-            or names_match(base, c.ven_name)
-        ]
-        return partial
 
     # ── Dialogs (completed talk transcripts) ─────────────────────────────
 

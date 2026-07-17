@@ -24,8 +24,15 @@ _RULE_RE = re.compile(r"^[\s\-_=─.]{3,}\s*$")
 _HEADING_RE = re.compile(r"^(#{1,3})\s+(.+)$")
 _FENCE_OPEN_RE = re.compile(r"^```(\w*)\s*$")
 _FENCE_CLOSE_RE = re.compile(r"^```\s*$")
+# Field row: :Label: value  (colons wrap the key — stable for multi-word labels)
 _LABEL_ROW_RE = re.compile(r"^:([^:]+):\s*(.*)$")
+# Also: bare Key: value (single-token key, for quick roadmap fields)
+_BARE_FIELD_RE = re.compile(r"^([A-Za-z][\w./-]{0,31}):\s+(.+)$")
 _FRONTMATTER_END = re.compile(r"^---\s*$")
+
+# Column pad for field keys (dynamic per contiguous block, clamped)
+_LABEL_COL_MIN = 8
+_LABEL_COL_MAX = 28
 
 # Inline emphasis (non-greedy, no newlines)
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
@@ -124,6 +131,30 @@ def render_body(text: str | None) -> str:
     return safe(text)
 
 
+def _field_row_match(line: str) -> tuple[str, str] | None:
+    """Return (label, value) for a field row, or None."""
+    m = _LABEL_ROW_RE.match(line)
+    if m:
+        return m.group(1).strip(), m.group(2)
+    m2 = _BARE_FIELD_RE.match(line)
+    if m2:
+        return m2.group(1).strip(), m2.group(2)
+    return None
+
+
+def _label_col_width(labels: list[str]) -> int:
+    """Pad width so value column lines up; clamp for ~72 measure."""
+    if not labels:
+        return _LABEL_COL_MIN
+    w = max(len(lab) for lab in labels)
+    return max(_LABEL_COL_MIN, min(_LABEL_COL_MAX, w))
+
+
+def _render_field_row(lab: str, val: str, col_w: int) -> str:
+    lab_s = safe(lab).ljust(col_w)
+    return f"[dim]{lab_s}[/dim]  {_render_inline(val)}"
+
+
 def render_studio_text(source: str) -> str:
     """Parse Studio Text → Rich markup (whitelist only)."""
     text = source.replace("\r\n", "\n").replace("\r", "\n")
@@ -171,12 +202,19 @@ def render_studio_text(source: str) -> str:
             i += 1
             continue
 
-        lm = _LABEL_ROW_RE.match(line)
-        if lm:
-            lab, val = lm.group(1).strip(), lm.group(2)
-            lab_s = safe(lab).ljust(12)
-            out.append(f"[dim]{lab_s}[/dim]  {_render_inline(val)}")
-            i += 1
+        # Contiguous field block — pad keys to one column for the block
+        fr = _field_row_match(line)
+        if fr is not None:
+            block: list[tuple[str, str]] = []
+            while i < n:
+                fr_i = _field_row_match(lines[i])
+                if fr_i is None:
+                    break
+                block.append(fr_i)
+                i += 1
+            col_w = _label_col_width([lab for lab, _ in block])
+            for lab, val in block:
+                out.append(_render_field_row(lab, val, col_w))
             continue
 
         if not line.strip():
@@ -218,17 +256,23 @@ def _render_frontmatter(meta: dict[str, str]) -> list[str]:
     rule = f"[dim]{'─' * CONTENT_MEASURE}[/dim]"
     lines = [rule]
     order = ("title", "type", "when", "status", "origin", "handler")
+    rows: list[tuple[str, str, bool]] = []  # key, val, bold_val
     seen: set[str] = set()
     for key in order:
         if key in meta and meta[key]:
             seen.add(key)
-            lab = safe(key).ljust(10)
-            lines.append(f"[dim]{lab}[/dim]  [bold]{safe(meta[key])}[/bold]")
+            rows.append((key, meta[key], True))
     for key, val in meta.items():
         if key in seen or not val:
             continue
-        lab = safe(key).ljust(10)
-        lines.append(f"[dim]{lab}[/dim]  {safe(val)}")
+        rows.append((key, val, False))
+    col_w = _label_col_width([k for k, _, _ in rows])
+    for key, val, bold in rows:
+        lab = safe(key).ljust(col_w)
+        if bold:
+            lines.append(f"[dim]{lab}[/dim]  [bold]{safe(val)}[/bold]")
+        else:
+            lines.append(f"[dim]{lab}[/dim]  {safe(val)}")
     lines.append(rule)
     return lines
 

@@ -139,6 +139,11 @@ class DescLiveIntegrationTests(unittest.TestCase):
         self.assertIn("Ctrl+S", src)
         # Draft helper still exists for unit tests / legacy
         self.assertIn("MultilineDescDraft", src)
+        from world_studio import text_editor
+
+        te = inspect.getsource(text_editor)
+        self.assertIn("ctrl+a", te)
+        self.assertIn("select_all", te)
 
 
 if __name__ == "__main__":

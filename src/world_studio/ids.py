@@ -241,7 +241,18 @@ def display_name(name: str | None) -> str:
 
 
 def names_match(query: str, candidate: str) -> bool:
-    """Flexible match: exact cute form, casefold equality, or substring."""
+    """
+    Name match without partial *word* hits.
+
+    Matches when:
+    - cute-form equal (``Silver Thread`` ↔ ``SILVER-THREAD``), or
+    - casefold title equal, or
+    - query is a **whole token** sequence in the candidate
+      (``silver`` ↔ ``Silver Thread``; ``field notes`` ↔ slug FIELD-NOTES)
+
+    Does **not** match substrings inside a token: ``q1`` does **not** hit
+    ``Q1G1`` (Q1 is not a full token of Q1G1).
+    """
     if not query or not candidate:
         return False
     q, c = query.strip(), candidate.strip()
@@ -252,8 +263,18 @@ def names_match(query: str, candidate: str) -> bool:
         return True
     if q.casefold() == c.casefold():
         return True
-    if q.casefold() in c.casefold() or q_cute in c_cute:
-        return True
+    q_tokens = [t for t in q_cute.split("-") if t]
+    c_tokens = [t for t in c_cute.split("-") if t]
+    if not q_tokens or not c_tokens:
+        return False
+    if len(q_tokens) == 1:
+        return q_tokens[0] in c_tokens
+    n, m = len(q_tokens), len(c_tokens)
+    if n > m:
+        return False
+    for i in range(m - n + 1):
+        if c_tokens[i : i + n] == q_tokens:
+            return True
     return False
 
 
