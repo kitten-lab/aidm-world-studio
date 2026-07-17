@@ -3733,11 +3733,13 @@ def _desc_commit(
     *,
     story_when: str,
     node_index: int | None,
+    lore_title: str = "description update",
 ) -> str:
     """
-    Snapshot current description into material history (+ text log body).
+    Snapshot current description into material history (+ text log + lore).
 
     Edits stay free; only commit stamps life-of-item history.
+    *lore_title* labels the lore entry (default ``description update``).
     """
     from .studio_text import is_studio, strip_studio_header
 
@@ -3754,6 +3756,7 @@ def _desc_commit(
         first = first[:45] + "…"
     preview = first or "(empty)"
     note = f"{nlines} line(s) · {nchars} ch · {preview}"
+    lore_title = (lore_title or "").strip() or "description update"
 
     # Full body in text revisions so commit is restorable via text show/restore
     from .studio_text import detect_format
@@ -3773,11 +3776,6 @@ def _desc_commit(
     # Readable copy in lore (instance lore list) — plain text, not studio chrome
     lore_id: str | None = None
     if plain_body:
-        lore_title = (
-            f"Desc {story_when}"
-            if story_when and story_when != "@unknown"
-            else "Desc commit"
-        )
         when_label = (
             story_when
             if story_when and story_when != "@unknown"
@@ -3792,7 +3790,7 @@ def _desc_commit(
             when_label=when_label,
             author="builder",
         )
-        # Lore life-row (same story when); shares a separate HST from desc act
+        # Lore life-row (same story when); separate HST from desc act
         _record_subject_history(
             world,
             "lore",
@@ -3822,6 +3820,7 @@ def _desc_commit(
     ]
     if lore_id:
         bits.append(f"lore {lore_id}")
+        bits.append(f"title {lore_title}")
     return fmt.ok("  ·  ".join(bits))
 
 
@@ -3830,14 +3829,20 @@ def _desc(world: World, arg: str) -> str:
     @desc                  — show current place description
     @desc <text>           — replace place (\\n for line breaks)
     @desc + / ++ / clear   — append / clear place override
-    @desc commit [when @N] — stamp current place desc into history
+    @desc commit [when @N] [-t title] — stamp desc into history + lore
 
     Any instance (no elevate required):
     @desc on <match>              — show that instance's description
     @desc on <match> <text>       — set override on that instance
     @desc on <match> + / ++ / clear
-    @desc commit on <match> [when @N]
+    @desc commit on <match> [when @N] [-t title]
     """
+    from .argflags import (
+        DESC_COMMIT_FLAG_ALIASES,
+        looks_like_flag_command,
+        parse_named_flags,
+        story_when_from_flag,
+    )
     from .story_when import peel_when_anywhere
 
     raw = arg.strip()
@@ -3847,31 +3852,80 @@ def _desc(world: World, arg: str) -> str:
     if low == "commit" or low.startswith("commit "):
         rest = raw[6:].strip() if low.startswith("commit") else ""
         rest, story_when, node_index = peel_when_anywhere(rest)
+        lore_title = "description update"
+        target: InstanceView | None = None
+
         rest_low = rest.lower()
         if rest_low.startswith("on "):
             thing, more, err = _split_instance_target_and_rest(world, rest[3:])
             if err or thing is None:
                 return err or fmt.hint(
-                    "Usage: @desc commit on <item|person|place> [when @N]"
+                    "Usage: @desc commit on <item|person|place> "
+                    "[-t title] [when @N]"
                 )
-            if (more or "").strip():
-                return fmt.hint(
-                    "Usage: @desc commit on <match> [when @N | --when 0]\n"
-                    "  Edit with @desc first; commit only stamps history."
+            target = thing
+            rest = (more or "").strip()
+
+        if rest and (
+            looks_like_flag_command(rest)
+            or rest.lower().startswith("on ")
+        ):
+            # flags after on-target, or --on / -t without prose on
+            if rest.lower().startswith("on ") and target is None:
+                thing, more, err = _split_instance_target_and_rest(
+                    world, rest[3:]
                 )
-            return _desc_commit(
-                world, thing, story_when=story_when, node_index=node_index
-            )
-        if rest:
+                if err or thing is None:
+                    return err or fmt.hint(
+                        "Usage: @desc commit on <match> [-t title]"
+                    )
+                target = thing
+                rest = (more or "").strip()
+            if rest:
+                parsed = parse_named_flags(
+                    rest, aliases=DESC_COMMIT_FLAG_ALIASES
+                )
+                if parsed.error:
+                    return fmt.err(parsed.error)
+                if parsed.get("name"):
+                    lore_title = parsed.get("name")
+                if "when" in parsed.flags:
+                    story_when, node_index = story_when_from_flag(
+                        parsed.get("when")
+                    )
+                if parsed.get("on") and target is None:
+                    thing, err = _resolve_instance_target(
+                        world, parsed.get("on")
+                    )
+                    if err or thing is None:
+                        return err or fmt.err(
+                            f"No match for {parsed.get('on')!r}."
+                        )
+                    target = thing
+                if parsed.positionals:
+                    return fmt.hint(
+                        "Usage: @desc commit [-t title] [when @N]  ·  "
+                        "@desc commit on <match> -t Soft dusk when @1\n"
+                        "  Default lore title: description update"
+                    )
+        elif rest:
             return fmt.hint(
-                "Usage: @desc commit [when @N]  ·  @desc commit on <match> [when @N]\n"
-                "  Current place if no on <match>."
+                "Usage: @desc commit [-t title] [when @N]  ·  "
+                "@desc commit on <match> [-t title] [when @N]\n"
+                "  Default lore title: description update"
             )
-        loc = world.player_location()
-        if not loc:
-            return fmt.hint("Nowhere.")
+
+        if target is None:
+            loc = world.player_location()
+            if not loc:
+                return fmt.hint("Nowhere.")
+            target = loc
         return _desc_commit(
-            world, loc, story_when=story_when, node_index=node_index
+            world,
+            target,
+            story_when=story_when,
+            node_index=node_index,
+            lore_title=lore_title,
         )
 
     # ── instance target ─────────────────────────────────────────────────

@@ -102,13 +102,25 @@ class DescCommandTests(unittest.TestCase):
         )
         self.assertGreaterEqual(len(revs), 1)
         self.assertIn("Soft dusk", revs[-1]["body"] or "")
-        # Full body also as instance lore
+        # Full body also as instance lore (default title)
         lore_rows = self.world.lore_for("instance", loc.id)
-        self.assertTrue(
-            any("Soft dusk" in (r["body"] or "") for r in lore_rows),
-            msg=str([dict(r) for r in lore_rows]),
-        )
+        hit = [
+            r
+            for r in lore_rows
+            if "Soft dusk" in (r["body"] or "")
+        ]
+        self.assertTrue(hit)
+        self.assertEqual(hit[-1]["title"], "description update")
         self.assertIn("lore", plain(r.message).lower())
+
+        r2 = dispatch(
+            self.world, "@desc commit -t Soft dusk beat when @1"
+        )
+        self.assertTrue(r2.ok, msg=r2.message)
+        lore2 = self.world.lore_for("instance", loc.id)
+        titled = [r for r in lore2 if r["title"] == "Soft dusk beat"]
+        self.assertEqual(len(titled), 1)
+        self.assertIn("Soft dusk", titled[0]["body"] or "")
 
 
 if __name__ == "__main__":

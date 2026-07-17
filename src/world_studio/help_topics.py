@@ -922,15 +922,15 @@ def _init_topics() -> None:
             fmt.example_line("@desc Soft light on unfinished canvases."),
             fmt.example_line(
                 "@desc commit",
-                "Stamp current desc into history (edit freely first)",
+                "Stamp history + lore (title: description update)",
             ),
             fmt.example_line(
-                "@desc commit when @2",
-                "Same with story when",
+                "@desc commit -t Soft dusk when @2",
+                "Optional lore title + story when",
             ),
             fmt.example_line(
-                "@desc commit on me",
-                "Commit instance desc (avatar, item, …)",
+                "@desc commit on me --title Portrait note",
+                "Instance desc + titled lore",
             ),
             fmt.example_line(
                 r"@desc First line.\nSecond line.",

@@ -60,6 +60,17 @@ def looks_like_flag_command(text: str) -> bool:
     return bool(_FLAG_START.search(text or ""))
 
 
+# @desc commit: optional -t/--title for lore title (not create's type)
+DESC_COMMIT_FLAG_ALIASES: dict[str, str] = {
+    "title": "name",
+    "t": "name",
+    "name": "name",
+    "n": "name",
+    "on": "on",
+    "when": "when",
+    "w": "when",
+}
+
 # Lore create: -t is title (not create's type); -d/-b body; -a add
 LORE_FLAG_ALIASES: dict[str, str] = {
     "add": "add",
