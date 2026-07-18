@@ -50,10 +50,36 @@ The yod is **not** “OpenAI product language.” It is **your** myth: when some
 | Name | Role |
 |------|------|
 | **ADM** | The field / continuity **system** (architecture, “all things are ven”) |
-| **AIDM** | **Prime narrative agent** (+ storytelling sub-agents) — only after work is complete enough to wear the **yod**. *Not* the name of every tool. |
-| **World Studio** | Human stage / pen — first true root tool; **no crown required** |
+| **AIDM** | **Prime narrative agent** that storytells *with* you — manager of angel agents. Only after work is complete enough to wear the **yod**. *Not* the name of the software. |
+| **World Builder Studio (WBS)** | Human stage / pen — formal product name; **no crown required**. Package/repo may still say `world_studio`. |
 
-Putting “AIDM” on the *studio* can irritate because the crown sits on the hammer before the agent has earned it. Product title can stay **World Studio** under an ADM/Silo umbrella; repo names may lag.
+Putting “AIDM” on the *studio* conflates the hammer with the being that may later sit beside you. **WBS builds worlds; AIDM (when earned) co-stories inside them.**
+
+### Ladder: VEN → a-ven → a-men → AIDM
+
+Wordplay is deliberate (amen / a-men / a-mn as child of the process toward ADM).
+
+| Step | Meaning |
+|------|---------|
+| **VEN** | Virtual entity in the model (prime / instance furniture of the multiverse). Not yet agenic. |
+| **a-ven** | **Agenic** VEN — of its own story; an NPC (or player-shaped being) that makes its own choices |
+| **a-men** | Angel agents under AIDM who help players in their stories. Spelling **a-men** on purpose (amen): moving toward ADM as **a-mn** — a child of the process |
+| **AIDM** | Crowning co-storyteller; coordinates a-men |
+
+```text
+VEN  →  a-ven (own choices)  →  a-men (serve with AIDM)  →  AIDM (when earned)
+         ↑ promote into training ← other a-men may sponsor
+```
+
+#### Props vs agency (DM rule)
+
+An **a-men** (and **AIDM** in general) may **short-use any plain VEN** — not an a-ven — to drive a scene, the way a tabletop DM voices an NPC prop.
+
+- **VEN (not yet a-ven):** fair game as story instrument / temporary mouthpiece.  
+- **Once it avens:** a-men **must not** use it as a prop. Agency is real; the being is no longer furniture.  
+- **Training toward a-men** is not only power — it is **respect for VENs even before they aven**: handle props as if they might wake; do not treat the multiverse as a toy chest.
+
+**Conceptual future (not shipped):** other **a-men** choose which **a-ven** to promote into training for agency — sponsorship into the a-men path, not auto-leveling by XP alone. That sponsorship is continuous with the respect rule above.
 
 ### imported.to
 
@@ -61,7 +87,7 @@ Putting “AIDM” on the *studio* can irritate because the crown sits on the ha
 2. **Worlds have an internet** →  
 3. That internet can **touch the outside** (doors, not a feed).
 
-Pocket / EDN / Chester = passage & switchboard. World Studio = substance (what exists). **Stack, don’t merge.**
+Pocket / EDN / Chester = passage & switchboard. WBS = substance (what exists). **Stack, don’t merge.**
 
 ---
 
@@ -109,15 +135,16 @@ Codebase “animals” (dialects, ROMs, shells) sit in the same family: **named 
                     └─────────────┬─────────────┘
           ┌───────────────────────┼───────────────────────┐
           │                       │                       │
-   World Studio              Passage net              Data Forestry
-   (substance stage)         (doors / pocket          (crates, tags,
+ World Builder Studio     Passage net              Data Forestry
+   (WBS · substance)         (doors / pocket          (crates, tags,
    author · walk             internet / imported.to)  threads, reports,
    folio · wiki                                       decay, gossip)
           │                       │                       │
           └───────────────────────┼───────────────────────┘
                                   │
                          AIDM (when earned)
-                    prime narrative agent + subs
+              co-storyteller · a-men (angel agents)
+              a-ven training / sponsorship (later)
 ```
 
 Maker world (export packs) ↔ seed worlds (import) under Silo.

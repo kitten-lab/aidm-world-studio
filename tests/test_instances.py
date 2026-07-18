@@ -73,6 +73,24 @@ class FormatRefTests(unittest.TestCase):
             parse_instance_ref_token("#FIELD-NOTES-0002"), "FIELD-NOTES-0002"
         )
         self.assertEqual(parse_instance_ref_token("#1"), "0001")
+        # Soft separators: spaces / underscores like dashes
+        from world_studio.ids import parse_ven_code, parse_resolve_query
+
+        self.assertEqual(parse_ven_code("bin 3"), "BIN-003")
+        self.assertEqual(parse_ven_code("BIN 003"), "BIN-003")
+        self.assertEqual(
+            parse_instance_ref_token("bin 003 0043"), "BIN-003-0043"
+        )
+        self.assertEqual(
+            parse_instance_ref_token("BIN-003-0043"), "BIN-003-0043"
+        )
+        base, where, ref = parse_resolve_query("bin 003 0043")
+        self.assertEqual(base, "")
+        self.assertEqual(ref, "BIN-003-0043")
+        # multi-word names still names, not codes
+        base2, _, ref2 = parse_resolve_query("Quiet Invitation")
+        self.assertEqual(base2, "Quiet Invitation")
+        self.assertIsNone(ref2)
 
 
 class InstanceIdentityTests(unittest.TestCase):
@@ -102,6 +120,23 @@ class InstanceIdentityTests(unittest.TestCase):
         self.assertTrue(refs[1].endswith("-0002"))
         for ref in refs:
             self.assertRegex(ref, COMPOSITE)
+
+    def test_soft_spaced_code_resolves_take(self) -> None:
+        """``take bin 001 0001`` finds BIN-001-0001 on the floor."""
+        self.assertTrue(dispatch(self.world, "dig bin Soft Shelf | x").ok)
+        inst = self.world.resolve_here_named("soft shelf")
+        assert inst is not None
+        ref = self.world.short_ref_of(inst.id)
+        self.assertRegex(ref, r"^BIN-\d{3}-0001$")
+        # spaced form of the same code
+        soft = ref.replace("-", " ")
+        hit = self.world.resolve_here_named(soft)
+        self.assertIsNotNone(hit)
+        assert hit is not None
+        self.assertEqual(hit.id, inst.id)
+        r = dispatch(self.world, f"take {soft}")
+        self.assertTrue(r.ok, msg=r.message)
+        self.assertIn("Taken", plain(r.message))
 
     def test_ambiguous_room_and_inv(self) -> None:
         dispatch(self.world, "spawn field-notes as Ritual Notes")

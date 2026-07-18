@@ -71,7 +71,7 @@ class VenPackRoundTripTests(unittest.TestCase):
             collector=self.collector,
         )
         self.assertTrue(path.is_file())
-        self.assertRegex(path.name, r"^\d{4}-SNS-\d{3}-the-knock\.ven$")
+        self.assertRegex(path.name, r"^\d{4}-EVT-\d{3}-the-knock\.ven$")
 
         pack = load_pack_file(path)
         self.assertEqual(pack["format"], "aidm.ven")
@@ -89,7 +89,7 @@ class VenPackRoundTripTests(unittest.TestCase):
         imported = other.get_ven(ven_id)
         assert imported is not None
         self.assertEqual(imported.name, "The Knock")
-        self.assertEqual(imported.kind, "sense")
+        self.assertEqual(imported.kind, "event")
 
         self.assertEqual(imported.code, ven.code)
         lore = other.lore_for("ven", ven_id)
@@ -178,7 +178,9 @@ class VenPackRoundTripTests(unittest.TestCase):
         assert inst_id is not None
         inst = other.get_instance(inst_id)
         assert inst is not None
-        self.assertEqual(inst.name, "Ritual Notes")
+        # Origin frag stamped so foreign identity survives host FOL codes
+        self.assertIn("Ritual Notes", inst.name)
+        self.assertIn("Lab", inst.name)
         self.assertEqual(inst.ven_kind, "folio")
         pages = other.list_book_pages(inst_id)
         self.assertEqual(len(pages), 1)
@@ -201,6 +203,67 @@ class VenPackRoundTripTests(unittest.TestCase):
         ven = other.find_ven("Field Notes")
         assert ven is not None
         self.assertEqual(len(other.list_instances_of_ven(ven.id)), 1)
+
+    def test_code_collision_keeps_foreign_name(self) -> None:
+        """FOL-00N in target is a different concept — do not attach as its child."""
+        from world_studio.ven_pack import export_instance
+
+        # Source: folio World Studio Help at whatever FOL code
+        self.assertTrue(
+            dispatch(
+                self.world,
+                "create book World Studio Help | Full help dump.",
+            ).ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn world-studio-help").ok)
+        help_book = self.world.resolve_here_named("world-studio-help")
+        assert help_book is not None
+        self.world.add_book_page(help_book.id, "Index", "help index body")
+        path = export_instance(
+            self.world,
+            help_book,
+            origin_world="Kitten-Lab",
+            collector=self.collector,
+        )
+        pack = load_pack_file(path)
+        home = pack["provenance"]["home_code"]
+
+        # Target already has a different folio occupying that code number
+        other = _world()
+        other_code = home  # force same code if free, else create then rename code...
+        # Create a host folio first so FOL-001 (or next) is taken
+        self.assertTrue(
+            dispatch(other, "create book Host Concept Book | Lab native.").ok
+        )
+        host = other.find_ven("Host Concept Book")
+        assert host is not None
+        # If pack wants same code as host, collision path triggers
+        pack["prime"]["code"] = host.code
+        pack["provenance"]["home_code"] = host.code
+
+        loc = other.player_location()
+        assert loc is not None
+        ven_id, local_code, inst_id, remap = import_pack(
+            other,
+            pack,
+            target_world_label="Other World",
+            place_instance_id=loc.id,
+        )
+        self.assertIsNotNone(inst_id)
+        assert inst_id is not None
+        inst = other.get_instance(inst_id)
+        assert inst is not None
+        # Must NOT be the host prime
+        self.assertNotEqual(inst.ven_id, host.id)
+        self.assertIn("World Studio Help", inst.name)
+        self.assertIn("Kitten-Lab", inst.name)
+        # Remapped off host code
+        self.assertIsNotNone(remap)
+        self.assertNotEqual(local_code, host.code)
+        pages = other.list_book_pages(inst_id)
+        self.assertTrue(any("help index" in (p["body"] or "").lower() for p in pages))
+        # Host still one concept
+        self.assertEqual(host.name, "Host Concept Book")
 
     def test_short_ref_not_collided_on_fresh_instance(self) -> None:
         """If 0001 is taken, import still works with next digits."""

@@ -1,4 +1,4 @@
-"""Look presence buckets: Here / Things / Happened Here / Force / Also present."""
+"""Look / examine placement buckets: Here + named containers (not kind taxonomy)."""
 
 from __future__ import annotations
 
@@ -21,11 +21,11 @@ def _world() -> World:
     return World(conn)
 
 
-class LookBucketTests(unittest.TestCase):
+class LookPlacementTests(unittest.TestCase):
     def setUp(self) -> None:
         self.world = _world()
 
-    def test_event_and_archetype_sections(self) -> None:
+    def test_room_loose_items_under_here_not_type_buckets(self) -> None:
         self.assertTrue(
             dispatch(self.world, "create event The Knock | Three soft taps.").ok
         )
@@ -42,50 +42,120 @@ class LookBucketTests(unittest.TestCase):
         self.assertTrue(dispatch(self.world, "spawn distant-hum").ok)
 
         text = plain(dispatch(self.world, "look").message)
-        self.assertIn("Happened Here", text)
+        # No kind taxonomy sections
+        self.assertNotIn("Happened Here", text)
+        self.assertNotIn("Force", text)
+        self.assertNotIn("Also present", text)
+        self.assertNotIn("Things", text)
+        # All loose presence under Here
+        self.assertIn("Here", text)
         self.assertIn("The Knock", text)
-        self.assertIn("Force", text)
         self.assertIn("The Watcher", text)
-        self.assertIn("Also present", text)
         self.assertIn("Distant Hum", text)
 
-        i_happened = text.index("Happened Here")
-        i_force = text.index("Force")
-        i_also = text.index("Also present")
-        self.assertLess(i_happened, i_force)
-        self.assertLess(i_force, i_also)
-        # Not dumped into Also present as the only home
-        also = text[i_also:]
-        self.assertNotIn("The Knock", also)
-        self.assertNotIn("The Watcher", also)
-        # No per-section column headers / rules
-        self.assertNotIn("NAME", text)
-        self.assertNotIn("TYPE", text)
-        self.assertNotIn("PRIME", text)
-
-    def test_shared_column_widths_across_sections(self) -> None:
-        """Longest name in any section pads shorter rows in other sections."""
-        long = "A Book That Loves You Backwards"
+    def test_container_bucket_shallow_kids_and_empty(self) -> None:
+        self.assertTrue(dispatch(self.world, "create bin Table | Oak.").ok)
+        self.assertTrue(dispatch(self.world, "spawn table").ok)
         self.assertTrue(
-            dispatch(self.world, f"create object {long} | spine.").ok
-        )
-        # seed void already has a long book; add a short force for comparison
+            dispatch(self.world, "create box Drawer | Sliding.").ok
+        )  # box → bin alias
+        self.assertTrue(dispatch(self.world, "spawn drawer").ok)
         self.assertTrue(
-            dispatch(self.world, "create archetype Hymn | Soft force.").ok
+            dispatch(self.world, "create container Empty Shelf | Bare.").ok
+        )  # container → bin alias
+        self.assertTrue(dispatch(self.world, "spawn empty-shelf").ok)
+        self.assertTrue(
+            dispatch(self.world, "create object Coffee | Warm.").ok
         )
-        self.assertTrue(dispatch(self.world, "spawn hymn").ok)
-        text = plain(dispatch(self.world, "look").message)
-        # Find the Hymn data line (after Force section title)
-        lines = text.splitlines()
-        hymn_line = next(ln for ln in lines if "Hymn" in ln and "archetype" in ln)
-        book_line = next(
-            ln for ln in lines if "Loves You Backwards" in ln and "book" in ln
+        self.assertTrue(dispatch(self.world, "spawn coffee").ok)
+        self.assertTrue(
+            dispatch(self.world, "create object Pink Button | Cute.").ok
         )
-        # KIND column starts at the same visual index on both rows
-        self.assertEqual(hymn_line.index("archetype"), book_line.index("book"))
+        self.assertTrue(dispatch(self.world, "spawn pink-button").ok)
 
-    def test_kind_and_subtype_are_separate_columns(self) -> None:
-        """Subtypes never jam into kind as feeling/longing in look lists."""
+        self.assertTrue(dispatch(self.world, "put drawer in table").ok)
+        self.assertTrue(dispatch(self.world, "put coffee in table").ok)
+        self.assertTrue(dispatch(self.world, "put pink-button in drawer").ok)
+
+        look = plain(dispatch(self.world, "look").message)
+        self.assertIn("Table", look)
+        self.assertIn("Empty Shelf", look)
+        self.assertIn("(empty)", look)
+        # Container header: lived name + light prime (even if same) + subtype if any
+        self.assertRegex(look, r"Table\s+·\s+Table")
+        # Shallow under Table: Drawer + Coffee, not Pink Button
+        self.assertIn("Drawer", look)
+        self.assertIn("Coffee", look)
+        self.assertNotIn("Pink Button", look)
+        # Button is not loose on the floor
+        # (void seed may have a book under Here — button must not be there alone as floor item)
+        # Pink Button only appears when examining drawer/table open path
+
+        ex_table = plain(dispatch(self.world, "examine table").message)
+        self.assertIn("Here", ex_table)
+        self.assertIn("Coffee", ex_table)
+        self.assertIn("Drawer", ex_table)
+        # Nested container opened one level
+        self.assertIn("Pink Button", ex_table)
+
+        ex_drawer = plain(dispatch(self.world, "examine drawer").message)
+        self.assertIn("Pink Button", ex_drawer)
+        self.assertNotIn("Coffee", ex_drawer)
+
+        # look --deep: nested bin header + kids (not Drawer as a plain list row)
+        look_deep = plain(dispatch(self.world, "look --deep").message)
+        self.assertIn("Pink Button", look_deep)
+        self.assertIn("└─", look_deep)
+        deep_lines = look_deep.splitlines()
+        drawer_hdr = next(
+            (ln for ln in deep_lines if "└─" in ln and "Drawer" in ln),
+            "",
+        )
+        self.assertTrue(drawer_hdr, msg=look_deep)
+        self.assertRegex(drawer_hdr, r"BIN-\d{3}-\d{4}")
+        # Loose root (Coffee) before nested bins, with blank line + Here label
+        coffee_i = next(
+            i for i, ln in enumerate(deep_lines) if "Coffee" in ln
+        )
+        drawer_i = next(
+            i for i, ln in enumerate(deep_lines) if "└─" in ln and "Drawer" in ln
+        )
+        self.assertLess(coffee_i, drawer_i, msg=look_deep)
+        # blank line between root block and first nested bin
+        between = deep_lines[coffee_i + 1 : drawer_i]
+        self.assertTrue(
+            any(not ln.strip() for ln in between) or any("Here" in ln for ln in deep_lines[coffee_i - 2 : coffee_i + 1]),
+            msg=look_deep,
+        )
+        # shallow look still hides button
+        look_shallow = plain(dispatch(self.world, "look").message)
+        self.assertNotIn("Pink Button", look_shallow)
+        self.assertNotIn("└─", look_shallow)
+
+        # Nested box under drawer: deep examine of table opens drawer kids;
+        # deep also expands Drawer-as-row... wait, examine table has Drawer as section
+        # with Pink Button. Add inner bin for examine --deep expansion.
+        self.assertTrue(
+            dispatch(self.world, "create bin Nest | tiny").ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn nest").ok)
+        self.assertTrue(
+            dispatch(self.world, "create thing Coin | shiny").ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn coin").ok)
+        self.assertTrue(dispatch(self.world, "put nest in drawer").ok)
+        self.assertTrue(dispatch(self.world, "put coin in nest").ok)
+        # examine table: Drawer section lists Nest + Pink Button (not Coin)
+        ex_t = plain(dispatch(self.world, "examine table").message)
+        self.assertIn("Nest", ex_t)
+        self.assertNotIn("Coin", ex_t)
+        # examine --deep table: Nest expands one layer → Coin
+        ex_td = plain(dispatch(self.world, "examine --deep table").message)
+        self.assertIn("Coin", ex_td)
+        self.assertIn("Nest", ex_td)
+
+    def test_presence_columns_are_prime_name_code(self) -> None:
+        """Look/examine rows: origin VEN · lived name · instance short ref."""
         self.assertTrue(
             dispatch(
                 self.world,
@@ -93,29 +163,90 @@ class LookBucketTests(unittest.TestCase):
             ).ok
         )
         self.assertTrue(dispatch(self.world, "spawn soft-ache").ok)
-        self.assertTrue(
-            dispatch(self.world, "create place/app Mailroom | Soft list.").ok
-        )
-        self.assertTrue(dispatch(self.world, "spawn mailroom").ok)
-        # put mailroom elsewhere so it doesn't steal focus — spawn is on floor
         text = plain(dispatch(self.world, "look").message)
-        self.assertNotIn("feeling/longing", text)
-        self.assertNotIn("place/app", text)
-        # Also present / Things rows show kind then subtype as separate tokens
         ache = next(
-            ln
-            for ln in text.splitlines()
-            if "Soft Ache" in ln or "Ache" in ln
+            ln for ln in text.splitlines() if "Soft Ache" in ln or "Ache" in ln
         )
-        self.assertRegex(ache, r"sense\s+longing")
-        # bare sense without extra subtype still shows em-dash or default subtype
+        # No kind/subtype columns in the list grid
+        self.assertNotIn("feeling/longing", ache)
+        self.assertNotRegex(ache, r"\blonging\s+sense\b")
+        self.assertRegex(ache, r"SNS-\d{3}-\d{4}")
+        # Code column aligns for two rows
         self.assertTrue(
             dispatch(self.world, "create sense Bare Hum | x.").ok
         )
         self.assertTrue(dispatch(self.world, "spawn bare-hum").ok)
         text2 = plain(dispatch(self.world, "look").message)
         bare = next(ln for ln in text2.splitlines() if "Bare Hum" in ln)
-        self.assertRegex(bare, r"sense\s+—")
+        ache2 = next(ln for ln in text2.splitlines() if "Ache" in ln)
+        self.assertRegex(bare, r"SNS-\d{3}-\d{4}")
+        # short-ref codes start at the same visual column
+        import re
+
+        m_a = re.search(r"SNS-\d{3}-\d{4}", ache2)
+        m_b = re.search(r"SNS-\d{3}-\d{4}", bare)
+        assert m_a and m_b
+        self.assertEqual(m_a.start(), m_b.start())
+
+
+class EventKindTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.world = _world()
+
+    def test_event_is_root_with_subtype(self) -> None:
+        from world_studio.world import parse_kind_spec, KINDS
+
+        self.assertIn("event", KINDS)
+        self.assertEqual(parse_kind_spec("event"), ("event", None))
+        self.assertEqual(parse_kind_spec("event/meeting"), ("event", "meeting"))
+        r = dispatch(
+            self.world,
+            "create event/meeting Soft Kickoff | The room holds the beat.",
+        )
+        self.assertTrue(r.ok, msg=r.message)
+        msg = plain(r.message).lower()
+        self.assertIn("event", msg)
+        self.assertIn("meeting", msg)
+        self.assertNotIn("sense/event", msg)
+        ven = self.world.find_ven("Soft Kickoff")
+        assert ven is not None
+        self.assertEqual(ven.kind, "event")
+        self.assertEqual((ven.subtype or "").lower(), "meeting")
+        self.assertTrue(ven.code and ven.code.startswith("EVT-"), msg=ven.code)
+        self.assertTrue(dispatch(self.world, "spawn soft-kickoff").ok)
+        look = plain(dispatch(self.world, "look").message)
+        self.assertIn("Soft Kickoff", look)
+        kick = next(ln for ln in look.splitlines() if "Kickoff" in ln)
+        self.assertRegex(kick, r"EVT-\d{3}-\d{4}")
+
+
+class DigBinAndTakeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.world = _world()
+
+    def test_dig_bin_lands_here_takeable_and_put_into(self) -> None:
+        """dig bin X must create a floor bin (not a free-floating place)."""
+        r = dispatch(self.world, "dig bin Table | Oak.")
+        self.assertTrue(r.ok, msg=r.message)
+        self.assertIn("here", plain(r.message).lower())
+        look = plain(dispatch(self.world, "look").message)
+        self.assertIn("Table", look)
+        take = dispatch(self.world, "take table")
+        self.assertTrue(take.ok, msg=take.message)
+        self.assertIn("Taken", plain(take.message))
+        drop = dispatch(self.world, "drop table")
+        self.assertTrue(drop.ok, msg=drop.message)
+        self.assertTrue(dispatch(self.world, "create thing Coin | shiny").ok)
+        self.assertTrue(dispatch(self.world, "spawn coin").ok)
+        put = dispatch(self.world, "put coin in table")
+        self.assertTrue(put.ok, msg=put.message)
+        self.assertIn("Put", plain(put.message))
+
+    def test_create_spawn_bin_takeable(self) -> None:
+        self.assertTrue(dispatch(self.world, "create bin Shelf | s").ok)
+        self.assertTrue(dispatch(self.world, "spawn shelf").ok)
+        r = dispatch(self.world, "take shelf")
+        self.assertTrue(r.ok, msg=r.message)
 
 
 if __name__ == "__main__":

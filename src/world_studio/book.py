@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from .measure import CONTENT_MEASURE
+from .measure import CONTENT_MEASURE, wrap_text_hanging
 
 BookStatus = Literal["empty", "incomplete", "complete"]
 
@@ -200,39 +200,6 @@ def gutter_prefix_width(num_width: int) -> int:
     return max(2, num_width) + 2
 
 
-def wrap_text_hanging(text: str, content_width: int) -> list[str]:
-    """
-    Hard-wrap one logical line into segments of at most *content_width*.
-
-    Prefers breaking on spaces; long tokens are split. Empty → ``[""]``.
-    """
-    if content_width < 1:
-        content_width = 1
-    if text is None:
-        return [""]
-    s = str(text)
-    if not s:
-        return [""]
-    if len(s) <= content_width:
-        return [s]
-    parts: list[str] = []
-    remaining = s
-    while remaining:
-        if len(remaining) <= content_width:
-            parts.append(remaining)
-            break
-        chunk = remaining[:content_width]
-        sp = chunk.rfind(" ")
-        # Prefer word break if not too early in the segment
-        if sp >= max(1, content_width // 4):
-            parts.append(remaining[:sp])
-            remaining = remaining[sp + 1 :]
-        else:
-            parts.append(chunk)
-            remaining = remaining[content_width:]
-    return parts or [""]
-
-
 def _emit_hanging_rows(
     num_markup: str,
     hang: int,
@@ -420,8 +387,9 @@ def _format_numbered_studio_lines(
             lab, val = fr
             col_w = field_col.get(i - 1, _label_col_width([lab]))
             lab_s = safe(lab).ljust(col_w)
-            # First segment carries the label; wrap value with hang
+            # First segment carries the label; wrap value under value column
             prefix_plain = f"{lab.ljust(col_w)}  "
+            value_hang = hang + len(prefix_plain)
             segs = wrap_text_hanging(val, max(8, content_w - len(prefix_plain)))
             for j, seg in enumerate(segs):
                 if j == 0:
@@ -429,7 +397,7 @@ def _format_numbered_studio_lines(
                         f"{num}  [dim]{lab_s}[/dim]  {_render_inline(seg)}"
                     )
                 else:
-                    out.append(f"{' ' * hang}{_render_inline(seg)}")
+                    out.append(f"{' ' * value_hang}{_render_inline(seg)}")
             continue
         if _is_blank_logical_line(line):
             # Pure breathing room — no gutter digit (index still reserved)

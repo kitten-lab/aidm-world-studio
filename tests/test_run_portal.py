@@ -38,10 +38,16 @@ class RunPortalTests(unittest.TestCase):
         self.assertIn("place/app", plain(dig.message))
 
     def test_not_installed_on_floor(self) -> None:
+        # App on floor with portal: floor-ready (door pattern) — run works.
+        # Install is only required when the token is NOT on the place floor
+        # (e.g. loose in inventory) or when you force from-device.
         self.assertTrue(dispatch(self.world, "portal mail -> Mailroom").ok)
         r = dispatch(self.world, "run mail")
-        self.assertFalse(r.ok)
-        self.assertIn("not installed", plain(r.message).lower())
+        self.assertTrue(r.ok, msg=r.message)
+        loc = self.world.player_location()
+        assert loc is not None
+        self.assertIn("Mailroom", loc.name)
+        dispatch(self.world, "logout")
 
     def test_run_from_device(self) -> None:
         self.assertTrue(dispatch(self.world, "portal mail -> Mailroom").ok)
@@ -59,8 +65,9 @@ class RunPortalTests(unittest.TestCase):
         self.assertEqual(loc.ven_subtype, "app")
         look = plain(dispatch(self.world, "look").message)
         self.assertIn("Mailroom", look)
-        # Location trailer: place: app (subtype when present)
-        self.assertRegex(look, r"place\s*:\s*app")
+        # Look location: subtype only (no root "place" kind)
+        self.assertRegex(look, r"\bapp\b")
+        self.assertNotRegex(look, r"place\s*:\s*app")
 
     def test_soft_run_unique_installed(self) -> None:
         self.assertTrue(dispatch(self.world, "portal mail -> Mailroom").ok)
@@ -140,10 +147,14 @@ class RunPortalTests(unittest.TestCase):
         mail2 = self.world.resolve_here_named("mail")
         assert mail2 is not None
         self.assertEqual(self.world.get_portal_to(mail2.id), dest_id)
-        # Not installed → run fails, but link is intact
+        # Loose in inventory (not floor, not installed) → run fails; link intact
         r_loose = dispatch(self.world, "run mail")
         self.assertFalse(r_loose.ok)
-        self.assertIn("not installed", plain(r_loose.message).lower())
+        msg = plain(r_loose.message).lower()
+        self.assertTrue(
+            "not installed" in msg or "not on the floor" in msg or "device" in msg,
+            msg=r_loose.message,
+        )
 
         put = dispatch(self.world, "install mail in terminal")
         self.assertTrue(put.ok, put.message)
@@ -183,6 +194,209 @@ class RunPortalTests(unittest.TestCase):
         r = dispatch(self.world, "logout")
         self.assertTrue(r.ok)
         self.assertIn("nothing", plain(r.message).lower())
+
+    def test_unlock_floor_door_portal(self) -> None:
+        """Room-as-portal: token on floor, open/enter without device install."""
+        dig = dispatch(self.world, "dig place/room Soft Suite | Soft lamp.")
+        self.assertTrue(dig.ok, dig.message)
+        self.assertTrue(
+            dispatch(
+                self.world, "create thing/door Brass Door | Plate waits."
+            ).ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn brass-door").ok)
+        self.assertTrue(
+            dispatch(self.world, "portal brass-door -> Soft Suite").ok
+        )
+        door = self.world.resolve_here_named("brass")
+        assert door is not None
+        self.assertIsNotNone(self.world.get_portal_to(door.id))
+        exits = plain(dispatch(self.world, "exits").message).lower()
+        self.assertNotIn("soft suite", exits)
+
+        r = dispatch(self.world, "open brass-door")
+        self.assertTrue(r.ok, r.message)
+        loc = self.world.player_location()
+        assert loc is not None
+        self.assertIn("Soft Suite", loc.name)
+        self.assertEqual(loc.ven_subtype, "room")
+
+        origin_back = dispatch(self.world, "logout")
+        self.assertTrue(origin_back.ok, origin_back.message)
+
+        r2 = dispatch(self.world, "enter brass")
+        self.assertTrue(r2.ok, r2.message)
+
+    def test_lock_deny_line_on_open(self) -> None:
+        """lock -d sets flavor printed when open fails while locked."""
+        dig = dispatch(self.world, "dig place/room Soft Suite | Soft lamp.")
+        self.assertTrue(dig.ok, dig.message)
+        self.assertTrue(
+            dispatch(
+                self.world, "create thing/door Brass Door | Plate waits."
+            ).ok
+        )
+        self.assertTrue(
+            dispatch(
+                self.world, "create thing/key Brass Key | Cold teeth."
+            ).ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn brass-door").ok)
+        self.assertTrue(dispatch(self.world, "spawn brass-key").ok)
+        self.assertTrue(
+            dispatch(self.world, "portal brass-door -> Soft Suite").ok
+        )
+        r = dispatch(
+            self.world,
+            'lock brass-door with brass-key -d "The latch laughs at bare hands."',
+        )
+        self.assertTrue(r.ok, r.message)
+        door = self.world.resolve_here_named("brass-door")
+        assert door is not None
+        self.assertIn("laughs", (self.world.get_portal_lock_deny(door.id) or ""))
+
+        blocked = dispatch(self.world, "open brass-door")
+        self.assertFalse(blocked.ok)
+        text = plain(blocked.message)
+        self.assertIn("latch laughs", text.lower())
+        self.assertIn("locked", text.lower())
+
+        # Clear deny with empty -d
+        self.assertTrue(
+            dispatch(self.world, 'lock brass-door -d ""').ok
+        )
+        self.assertIsNone(self.world.get_portal_lock_deny(door.id))
+        blocked2 = dispatch(self.world, "open brass-door")
+        self.assertFalse(blocked2.ok)
+        self.assertNotIn("latch laughs", plain(blocked2.message).lower())
+
+    def test_lock_key_unlock_open(self) -> None:
+        """lock with key → open fails → unlock with key → open works."""
+        dig = dispatch(self.world, "dig place/room Soft Suite | Soft lamp.")
+        self.assertTrue(dig.ok, dig.message)
+        self.assertTrue(
+            dispatch(
+                self.world, "create thing/door Brass Door | Plate waits."
+            ).ok
+        )
+        self.assertTrue(
+            dispatch(
+                self.world, "create thing/key Brass Key | Cold teeth."
+            ).ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn brass-door").ok)
+        self.assertTrue(dispatch(self.world, "spawn brass-key").ok)
+        self.assertTrue(
+            dispatch(self.world, "portal brass-door -> Soft Suite").ok
+        )
+        self.assertTrue(
+            dispatch(self.world, "lock brass-door with brass-key").ok
+        )
+        door = self.world.resolve_here_named("brass-door")
+        assert door is not None
+        self.assertTrue(self.world.is_portal_locked(door.id))
+
+        blocked = dispatch(self.world, "open brass-door")
+        self.assertFalse(blocked.ok)
+        self.assertIn("locked", plain(blocked.message).lower())
+
+        # Wrong key
+        self.assertTrue(
+            dispatch(
+                self.world, "create thing/key Iron Key | Wrong teeth."
+            ).ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn iron-key").ok)
+        bad = dispatch(self.world, "unlock brass-door with iron-key")
+        self.assertFalse(bad.ok)
+
+        good = dispatch(self.world, "unlock brass-door with brass-key")
+        self.assertTrue(good.ok, good.message)
+        self.assertIn("unlocked", plain(good.message).lower())
+        self.assertFalse(self.world.is_portal_locked(door.id))
+
+        # Still here until open
+        loc0 = self.world.player_location()
+        assert loc0 is not None
+        self.assertNotIn("Soft Suite", loc0.name)
+
+        entered = dispatch(self.world, "open brass-door")
+        self.assertTrue(entered.ok, entered.message)
+        loc = self.world.player_location()
+        assert loc is not None
+        self.assertIn("Soft Suite", loc.name)
+
+        # Auto key from inventory after re-lock *with the same key copy*
+        dispatch(self.world, "logout")
+        self.assertTrue(
+            dispatch(self.world, "lock brass-door with brass-key").ok
+        )
+        self.assertTrue(dispatch(self.world, "take brass-key").ok)
+        auto = dispatch(self.world, "unlock brass-door")
+        self.assertTrue(auto.ok, auto.message)
+        self.assertTrue(dispatch(self.world, "enter brass-door").ok)
+
+    def test_one_prime_key_named_spawns_are_distinct(self) -> None:
+        """Prime Key + Cellar/Suite instances — only the bound copy opens the door."""
+        dig = dispatch(self.world, "dig place/room Soft Suite | Soft lamp.")
+        self.assertTrue(dig.ok, dig.message)
+        self.assertTrue(
+            dispatch(self.world, "create thing/door Brass Door | Plate.").ok
+        )
+        self.assertTrue(
+            dispatch(self.world, "create thing/key Key | Blank teeth.").ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn brass-door").ok)
+        self.assertTrue(dispatch(self.world, "spawn key as Cellar Key").ok)
+        self.assertTrue(dispatch(self.world, "spawn key as Suite Key").ok)
+        self.assertTrue(
+            dispatch(self.world, "portal brass-door -> Soft Suite").ok
+        )
+        self.assertTrue(
+            dispatch(self.world, "lock brass-door with cellar-key").ok
+        )
+        door = self.world.resolve_here_named("brass-door")
+        cellar = self.world.resolve_here_named("cellar")
+        suite = self.world.resolve_here_named("suite")
+        assert door and cellar and suite
+        self.assertEqual(
+            self.world.get_portal_key_instance_id(door.id), cellar.id
+        )
+        self.assertEqual(cellar.ven_id, suite.ven_id)
+
+        bad = dispatch(self.world, "unlock brass-door with suite-key")
+        self.assertFalse(bad.ok, msg=bad.message)
+        self.assertTrue(
+            "not the key" in plain(bad.message).lower()
+            or "does not fit" in plain(bad.message).lower()
+            or "need" in plain(bad.message).lower(),
+            msg=bad.message,
+        )
+
+        good = dispatch(self.world, "unlock brass-door with cellar-key")
+        self.assertTrue(good.ok, good.message)
+        self.assertTrue(dispatch(self.world, "open brass-door").ok)
+
+    def test_open_folio_still_works_when_no_portal(self) -> None:
+        """open prefers portal; falls through to folio when unbound."""
+        self.assertTrue(
+            dispatch(
+                self.world, "create book Field Notes | Pocket ruled."
+            ).ok
+        )
+        self.assertTrue(dispatch(self.world, "spawn field-notes").ok)
+        self.assertTrue(
+            dispatch(
+                self.world, "folio page add field-notes Leaf One | hello"
+            ).ok
+        )
+        r = dispatch(self.world, "open field-notes")
+        self.assertTrue(r.ok, r.message)
+        text = plain(r.message).lower()
+        self.assertTrue(
+            "leaf" in text or "page" in text or "field" in text,
+            msg=r.message,
+        )
 
 
 if __name__ == "__main__":

@@ -54,7 +54,7 @@ class KindRegistryTests(unittest.TestCase):
         for k in (
             "person",
             "place",
-            "container",
+            "bin",
             "thing",
             "folio",
             "symbol",
@@ -114,14 +114,14 @@ class InnerGoalsDispatchTests(unittest.TestCase):
         self.assertIn("[sense]", plain(r.message).lower())
 
         ex = plain(dispatch(self.world, "examine cartographer").message)
-        self.assertIn("Inner life", ex)
+        # Placement: loose senses/goals under Here (not a separate Inner life bucket)
+        self.assertIn("Here", ex)
         self.assertTrue(
             "Return Want" in ex or "RETURN-WANT" in ex.upper(),
             msg=ex,
         )
         self.assertIn("DESIRE", ex.upper())
-        self.assertIn("sense", ex.lower())
-        self.assertIn("goal", ex.lower())
+        self.assertRegex(ex, r"SNS-\d{3}-\d{4}")
         self.assertIn("Longing", ex)
 
         who = plain(dispatch(self.world, "who").message)
@@ -135,7 +135,7 @@ class InnerGoalsDispatchTests(unittest.TestCase):
         dispatch(self.world, "spawn pocket-stone as Stone")
         dispatch(self.world, "put stone in cartographer")
         ex2 = plain(dispatch(self.world, "examine cartographer").message)
-        self.assertIn("Contains", ex2)
+        self.assertIn("Here", ex2)
         self.assertIn("Stone", ex2)
 
     def test_feeling_subtype_and_desire_kind(self) -> None:
@@ -158,7 +158,8 @@ class InnerGoalsDispatchTests(unittest.TestCase):
         self.assertTrue("Soft Ache" in ex or "SOFT-ACHE" in ex.upper(), msg=ex)
         self.assertIn("sense", ex.lower())
         self.assertIn("longing", ex.lower())
-        self.assertRegex(ex, r"sense\s+longing")
+        # presence rows show prime · name · code (not kind/subtype)
+        self.assertRegex(ex, r"SNS-\d{3}-\d{4}")
 
         r = dispatch(
             self.world,

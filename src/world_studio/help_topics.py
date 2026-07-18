@@ -11,7 +11,8 @@ from .world import KINDS
 _TOPIC_ALIASES: dict[str, tuple[str, ...]] = {
     "look": ("look", "l"),
     "go": ("go", "g"),
-    "run": ("run", "activate", "use"),
+    "run": ("run", "activate", "use", "enter", "open"),
+    "lock": ("lock", "unlock"),
     "logout": ("logout", "logoff", "log-out"),
     "portal": ("portal",),
     "locate": ("locate", "status", "sit", "situation", "whereami", "where"),
@@ -81,7 +82,7 @@ _HELP_INDEX_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
         [
             ("look", "Describe the place you are in"),
             ("go", "Travel a path by label"),
-            ("run", "Enter app portal (aliases: activate, use)"),
+            ("run", "Portal travel (open/enter/run; unlock if locked)"),
             ("logout", "Leave a run session → where you entered from"),
             ("locate", "Where your avatar is (locate self); later: codes"),
             ("paths", "List paths from here (aliases: exits, ways, x)"),
@@ -96,6 +97,7 @@ _HELP_INDEX_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
             ("examine", "Detail a thing (aliases: exam, inspect, in)"),
             ("put", "Into box, person, or nearby room (alias: install)"),
             ("portal", "Bind thing → place world for run"),
+            ("lock", "Lock / unlock portal doors (optional keys)"),
         ],
     ),
     (
@@ -143,7 +145,7 @@ _HELP_INDEX_CATEGORIES: list[tuple[str, list[tuple[str, str]]]] = [
             ("vens", "List primes · export/load collector packs"),
             ("lineage", "Specialization path root › … › ven"),
             ("compose", "Prime-level parts (symbol / archetype / …)"),
-            ("kinds", "Lean roots · person place container thing folio…"),
+            ("kinds", "Lean roots · person place bin thing folio sense event…"),
             ("concepts", "VEN model: codes, lineage, composition, instances"),
         ],
     ),
@@ -297,12 +299,28 @@ def _init_topics() -> None:
         "look": _page(
             "look",
             _p(
-                "Show the current place: location line, description, "
-                "people, things, and paths out of here (type · exit → place)."
+                "Show the current place: location line, description, paths, "
+                "and presence by *placement* (not kind). "
+                "Loose items land under Here; each bin VEN is its own bucket "
+                "with shallow (first-level) kids — empty bins still show. "
+                "With --deep: one more layer inside those bins + full place lore. "
+                "With a target, same as examine."
             ),
             fmt.section("Usage"),
-            fmt.example_line("look", "Full room view"),
+            fmt.example_line("look", "Room + Here + bin buckets"),
+            fmt.example_line(
+                "look --deep",
+                "Bins open one layer deeper + full place lore",
+            ),
+            fmt.example_line("look deep", "Same (trailing deep)"),
+            fmt.example_line(
+                "look --deep at table",
+                "Examine target with full lore",
+            ),
             fmt.example_line("l", "Short alias"),
+            fmt.hint(
+                "put titles in Q3 (bin); look lists them under Q3, not a Things bucket."
+            ),
             fmt.hint("paths alone reprints the list; go <label> to travel."),
         ),
         "go": _page(
@@ -320,40 +338,78 @@ def _init_topics() -> None:
         "run": _page(
             "run",
             _p(
-                "Travel into a real place through an installed object (app, cartridge, tape…). "
-                "activate and use are aliases for run. "
-                "The destination is a normal place (dig place/app … or place/storybook …) — "
-                "not a UI layer. Portals do not list under paths; examine the device to find them."
+                "Travel into a real place through a portal-bound object — never a paths entry. "
+                "Aliases: activate, use, enter. open also enters a portal when the name matches "
+                "(otherwise folio read). unlock is separate — it only clears a lock (keys). "
+                "Two patterns: (1) apps in a device — run mail from terminal; "
+                "(2) doors on the floor — open brass-door. Locked doors: unlock first. "
+                "logout returns."
             ),
             fmt.section("Usage"),
             fmt.example_line(
                 "run mail from terminal",
-                "Explicit: app inside that container",
+                "App installed in a device",
             ),
             fmt.example_line(
-                "activate mail from terminal",
-                "Same as run",
+                "open brass-door",
+                "Floor portal (must be unlocked)",
             ),
             fmt.example_line(
-                "use mail",
-                "Same as run (soft resolve)",
+                "enter hatch · activate mail · use kat",
+                "Same travel family",
             ),
+            fmt.section("Setup · locked door + key"),
+            fmt.example_line("dig place/room Soft Suite | Soft lamp."),
+            fmt.example_line("create thing/door Brass Door | Plate waits."),
+            fmt.example_line("create thing/key Brass Key | Cold teeth."),
+            fmt.example_line("spawn brass-door  ·  spawn brass-key"),
+            fmt.example_line("portal brass-door -> Soft Suite"),
+            fmt.example_line("lock brass-door with brass-key"),
             fmt.example_line(
-                "run kat-moire",
-                "Enter the bound place world (e.g. Kitten Detective city)",
+                "unlock brass-door with brass-key  ·  open brass-door",
+                "Key must be in reach (here or inv)",
             ),
-            fmt.section("Setup"),
+            fmt.section("Setup · app in device"),
             fmt.example_line("dig place/app Mailroom | Soft list light."),
             fmt.example_line("create thing/app Mail | Inbox that never sleeps."),
             fmt.example_line("spawn mail  ·  install mail in terminal"),
-            fmt.example_line("portal mail -> Mailroom"),
-            fmt.hint(
-                "Not installed: app on the floor or loose in inv — "
-                "install / put it in a device first."
-            ),
+            fmt.example_line("portal mail -> Mailroom  ·  run mail"),
+            fmt.hint("Apps loose in inv still need install; doors on the floor do not."),
             fmt.hint("Ambiguous: run <app> from <device>"),
-            fmt.hint("Leave with logout (returns to where you ran from, not a room exit)."),
+            fmt.hint("Leave with logout (returns to where you entered, not a room exit)."),
         ),
+        "lock": _page(
+            "lock",
+            _p(
+                "Lock or unlock a portal token (door, hatch, room shell). "
+                "lock <door> with <key> binds that *key instance* — not the Key prime. "
+                "Author one prime Key, spawn named copies (Cellar Key, Suite Key); each "
+                "door remembers the copy you locked it with. Sibling keys of the same prime "
+                "do not open each other's doors. open / enter / run refuse locked portals. "
+                "unlock only clears the lock; it does not travel. Keyless: lock door (no with). "
+                "Optional -d / --desc is flavor when open fails while locked."
+            ),
+            fmt.section("Usage"),
+            fmt.example_line("create thing/key Key | Blank teeth."),
+            fmt.example_line("spawn key as Cellar Key  ·  spawn key as Suite Key"),
+            fmt.example_line("lock brass-door with cellar-key"),
+            fmt.example_line(
+                'lock brass-door with cellar-key -d "The latch laughs at bare hands."',
+                "Deny line on failed open",
+            ),
+            fmt.example_line(
+                "unlock brass-door with suite-key",
+                "Fails — wrong copy",
+            ),
+            fmt.example_line("unlock brass-door with cellar-key"),
+            fmt.example_line("unlock brass-door", "Auto if the bound copy is in reach"),
+            fmt.example_line("open brass-door", "Enter after unlock"),
+            fmt.hint("Prime = kind of thing; instance = this key in your hand."),
+            fmt.hint("Keys stay in inventory or on the floor — not consumed."),
+            fmt.hint("portal clear also clears lock, key bind, and -d deny line."),
+            fmt.hint('lock … -d "" clears a previous deny line.'),
+        ),
+
         "logout": _page(
             "logout",
             _p(
@@ -373,14 +429,18 @@ def _init_topics() -> None:
         "portal": _page(
             "portal",
             _p(
-                "Bind a thing instance to a place world for run. "
-                "The binding lives on the app (state), not on the device — "
+                "Bind a thing instance to a place world for run / unlock / open. "
+                "The binding lives on the token (state), not on the device — "
                 "take / drop / put / install never clear it; only portal clear does. "
-                "Install is presence for run, not ownership of the link. "
-                "Travel is device-scoped and never appears on the room exit list."
+                "Two uses: app→place (install then run) or door→place (floor then unlock). "
+                "Never appears on the room exit list — different from link/go."
             ),
             fmt.section("Usage"),
             fmt.example_line("portal mail -> Mailroom"),
+            fmt.example_line(
+                "portal room-001 -> Room 001",
+                "Door/token → interior place",
+            ),
             fmt.example_line(
                 "portal kat-moire -> City of Soft Alibis",
                 "Game cartridge → full story place",
@@ -390,7 +450,10 @@ def _init_topics() -> None:
                 "take mail from terminal  ·  install mail in terminal  ·  run mail",
                 "No re-portal needed after take",
             ),
-            fmt.hint("Then: install <app> in <device>  ·  run / activate / use <app>"),
+            fmt.hint(
+                "Then: lock <door> with <key> · unlock · open / enter  ·  "
+                "or install + run <app>"
+            ),
         ),
         "locate": _page(
             "locate",
@@ -453,11 +516,19 @@ def _init_topics() -> None:
         ),
         "inv": _page(
             "inv",
-            _p("List items you are carrying (inventory slot)."),
+            _p(
+                "List what you carry (inventory slot), in the same placement "
+                "language as look. Loose items under Carrying; each carried bin "
+                "is its own bucket with contents underneath (empty bins still show). "
+                "inv --deep opens nested bins one layer (drawers in a pack, …)."
+            ),
             fmt.section("Usage"),
             fmt.example_line("inv"),
+            fmt.example_line("inv --deep", "Nested bins one layer deeper"),
+            fmt.example_line("inv deep", "Same"),
             fmt.example_line("inventory"),
             fmt.example_line("i"),
+            fmt.hint("Same columns as look: prime · name · code."),
         ),
         "take": _page(
             "take",
@@ -498,14 +569,22 @@ def _init_topics() -> None:
         "examine": _page(
             "examine",
             _p(
-                "Inspect a thing here or in inventory: description, ids, contents. "
-                "On people: Inner life (sense, archetypes…), "
-                "last completed dialog teaser, related lore counts. "
+                "Inspect a thing here or in inventory: description, ids, placement. "
+                "Loose contents under Here; each nested bin opens as a named "
+                "bucket with its first-level kids (empty bins still show). "
+                "On people: last dialog teaser, related lore counts. "
+                "With --deep / deep: one more layer inside those bins, full lore "
+                "bodies, and deeper composition. "
                 "Also: examine realm / examine timeline for the place you stand in."
             ),
             fmt.section("Usage"),
             fmt.example_line("examine archivist"),
-            fmt.example_line("examine cartographer", "Inner life + last dialog"),
+            fmt.example_line("examine table", "Here + nested drawers opened one level"),
+            fmt.example_line(
+                "examine --deep cartographer",
+                "Full lore + deep compose",
+            ),
+            fmt.example_line("in --deep at silver", "Alias form"),
             fmt.example_line("in silver", "Short alias (also: exam, inspect)"),
             fmt.example_line("examine realm", "Current place's realm layer"),
             fmt.example_line("examine timeline", "Current place's timeline layer"),
@@ -632,7 +711,9 @@ def _init_topics() -> None:
             fmt.hint("+       add leaf after current → opens STUDIO Writer"),
             fmt.hint("e       edit this leaf (title + body)"),
             fmt.hint("Esc     close reader"),
-            fmt.hint("Ctrl+S / Esc in writer · save or cancel (quiet toasts)"),
+            fmt.hint(
+                "F2/Alt+P preview · Ctrl+S save · Esc cancel in writer (quiet toasts)"
+            ),
             fmt.section("CLI when you need it"),
             fmt.example_line("folio pages field-notes", "List leaf titles"),
             fmt.example_line(
@@ -801,33 +882,32 @@ def _init_topics() -> None:
         "dig": _page(
             "dig",
             _p(
-                "Create a new place VEN and one instance. Optional place/subtype "
-                "flavors the world (app, storybook, dream…) without changing kind. "
-                "By default inherits your current realm/timeline. "
-                "Does not auto-link; use link next. App worlds use portal + run."
+                "Make something here. "
+                "Bare name or place[/subtype] → free-standing place (link after). "
+                "Leading kind (bin, thing, folio, …) → prime + instance on this floor "
+                "(takeable / put-into). "
+                "Do not dig bin as if it were a place name — that used to make a "
+                "floating place you could not take."
             ),
             fmt.section("Usage"),
-            fmt.example_line("dig Quiet Gallery"),
+            fmt.example_line("dig Quiet Gallery", "Free-standing place"),
             fmt.example_line(
-                "dig place/app Mailroom | Soft list light.",
+                "dig place/app Mailroom",
                 "App-world place (still a full place)",
             ),
             fmt.example_line(
-                "dig place/storybook City of Soft Alibis",
-                "Storybook / game world place",
+                "dig bin Table | Oak.",
+                "Bin on the floor here (take / put into)",
             ),
-            fmt.example_line("dig Mirror Box Chamber timeline SHATTERED"),
             fmt.example_line(
-                "dig Ritual Floor realm MATERIAL timeline PRIME",
-                "Explicit dimensional + temporal layer",
+                "dig box/calendar Q3 2026",
+                "box → bin; lands here",
             ),
+            fmt.example_line("dig thing Pink Button | A button she found."),
+            fmt.example_line("dig Mirror Box Chamber timeline SHATTERED"),
             fmt.hint(
-                "Subtype = flavor of place. Realm/timeline = multiverse coordinates. "
-                "run = how you arrived (not an exit)."
-            ),
-            fmt.hint(
-                "Template rooms: create place Room  ·  spawn room as Kitchen  ·  "
-                "link door -> Kitchen both  (dig always makes a new prime)."
+                "Places: free-standing · link after. "
+                "Bins/things: on this floor · take/drop/put."
             ),
         ),
         "timeline": _page(
@@ -980,8 +1060,9 @@ def _init_topics() -> None:
                 "Editor for instance override description",
             ),
             fmt.hint(
-                "<< / <<studio opens a nano-like buffer: move freely, Ctrl+S save, "
-                "Esc / Ctrl+Q cancel.  text log lists editor save history."
+                "<< / <<studio opens STUDIO Writer: move freely, F2 or Alt+P "
+                "preview (no commit; avoids VS Code Ctrl+P), Ctrl+S save, "
+                "Esc / Ctrl+Q cancel. text log lists editor save history."
             ),
             fmt.hint("See help studio-text for the full dialect. Default text stays plain."),
             fmt.hint(
@@ -1022,6 +1103,9 @@ def _init_topics() -> None:
             fmt.hint("> blockquote"),
             fmt.hint("``` / ```seed / ```map … ```   light box fence (ASCII art)"),
             fmt.hint("[[Name]]   pointer chip — open with wiki Name (real VEN/instance only)"),
+            fmt.hint(
+                "[label](https://…)  or bare https://…  — click opens your browser"
+            ),
             fmt.hint("@tag  #tag   muted chips"),
             fmt.hint(
                 ":Label: value   field row — contiguous rows share a value column "
@@ -1087,7 +1171,9 @@ def _init_topics() -> None:
             fmt.example_line("@desc <<studio"),
             fmt.example_line("folio page add notes Chapter <<studio"),
             fmt.example_line("lore add Founding <<studio"),
-            fmt.hint("In the editor: Ctrl+S save · Esc / Ctrl+Q cancel"),
+            fmt.hint(
+                "In the editor: F2/Alt+P preview · Ctrl+S save · Esc / Ctrl+Q cancel"
+            ),
         ),
         "create": _page(
             "create",
@@ -1108,7 +1194,10 @@ def _init_topics() -> None:
             fmt.hint(
                 "--type/--kind/-t  ·  --name/-n  ·  --desc/-d  ·  --when/-w  ·  --of parent"
             ),
-            fmt.hint("Roots: person · place · container · thing · folio · symbol · sense"),
+            fmt.hint(
+                "Roots: person · place · bin · thing · folio · symbol · sense · event  "
+                "(aliases: box crate container → bin; feeling→sense; …)"
+            ),
             fmt.section("Legacy (still works)"),
             fmt.example_line(
                 "create folio Field Notes | Working notebook.",
@@ -1131,7 +1220,8 @@ def _init_topics() -> None:
             fmt.hint(
                 "book → folio/book · object → thing · material → thing/material · "
                 "feeling → sense/feeling · goal/desire/purpose → sense/… · "
-                "archetype → person/archetype · concept → symbol"
+                "archetype → person/archetype · concept → symbol · "
+                "event is a root (event/meeting, event/beat, …)"
             ),
             fmt.hint("Kinds: {kinds}"),
             fmt.hint("See also: help kinds · help spawn · help folio · help history"),
@@ -1316,6 +1406,8 @@ def _init_topics() -> None:
             _p(
                 "Move a nearby or carried thing into a container, person, or nearby place. "
                 "install is an alias for put (handy for apps into devices before run). "
+                "Prepositions in / into / on / onto are the same placement "
+                "(on/onto feel natural for tables, shelves, trays). "
                 "Adjacent paths count as present: put into a path label or neighboring place name "
                 "without picking the thing up first (works for people and things). "
                 "Putting sense or person/archetype into a person auto-uses "
@@ -1326,6 +1418,10 @@ def _init_topics() -> None:
             ),
             fmt.section("Usage"),
             fmt.example_line("put SILVER-THREAD in BOX"),
+            fmt.example_line(
+                "put quill on table",
+                "on / onto = same as in / into",
+            ),
             fmt.example_line(
                 "install mail in terminal",
                 "Same as put (run-friendly wording)",
@@ -1471,13 +1567,16 @@ def _init_topics() -> None:
             "kinds",
             _p(
                 "Lean roots the studio understands. Flavors use kind/subtype "
-                "(create folio/sketchbook …, sense/longing …). "
+                "(create folio/sketchbook …, sense/longing …, event/meeting …). "
                 "Inner life (when put in a person): sense, person/archetype. "
                 "Legacy names fold: book→folio, feeling→sense, object→thing, …"
             ),
             fmt.section("Usage"),
             fmt.example_line("kinds"),
             fmt.example_line("create sense/longing Soft Ache | Quieter cousin."),
+            fmt.example_line(
+                "create event/meeting Soft Kickoff | Room holds the beat.",
+            ),
             fmt.hint("Roots: {kinds}"),
             fmt.hint("See also: help create · help put · help folio"),
         ),
@@ -1504,8 +1603,8 @@ def _init_topics() -> None:
         "concepts": _page(
             "concepts",
             _p(
-                "VEN — prime idea (person, place, container, thing, folio, symbol, "
-                "sense, realm, timeline).",
+                "VEN — prime idea (person, place, bin, thing, folio, symbol, "
+                "sense, event, realm, timeline).",
                 "Instance — a situated copy you can place, hold, or walk into.",
                 "Lineage — specialization tree: parent prime › child primes "
                 "(FILE → Secret Document); create … of <parent> or elevate.",

@@ -530,6 +530,14 @@ def run_textual(world: World, world_path: Path) -> None:
     class StudioApp(App[None]):
         """World log + help side rail; book open uses a soft full-width reader modal."""
 
+        def action_open_url(self, url: str) -> None:
+            """Open an external http(s) link from studio text (clickable @click)."""
+            from .studio_text import is_openable_url
+
+            u = (url or "").strip()
+            if is_openable_url(u):
+                self.open_url(u)
+
         # Sharp/dark chrome: solid borders, near-black panels, wider help rail
         CSS = f"""
         Screen {{
@@ -687,7 +695,7 @@ def run_textual(world: World, world_path: Path) -> None:
             """
             Persistent top bar:
               left   Starting Seed
-              center AIDM World Studio | {world file}
+              center World Builder Studio | {world file}
               right  current location
             """
             from .ids import display_name
@@ -961,11 +969,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--seed",
-        choices=("story", "classic", "void", "bootstrap"),
+        choices=("story", "classic", "void", "tavern", "bootstrap"),
         default="story",
         help=(
             "Seed flavor when creating/reseeding: story (default), classic, void, "
-            "or bootstrap (bare Herenow + Builder archetype)"
+            "tavern (mystic Wick & Whisper), or bootstrap (bare Herenow)"
         ),
     )
     p.add_argument(

@@ -1,6 +1,8 @@
-# AIDM World Studio
+# World Builder Studio (WBS)
 
-A **VEN-based** MUD-like multiverse builder (**AIDM** — dream-maker / crowned Adam): walk places in a terminal, author characters, materials, feelings, and lore, and treat almost everything as a **Virtual Entity** with **instances**.
+A **VEN-based** MUD-like multiverse builder: walk places in a terminal, author characters, materials, feelings, and lore, and treat almost everything as a **Virtual Entity** with **instances**.
+
+**AIDM** (in the fiction) is the narrative agent that can storytell *with* you — not the name of this tool. Ladder: VEN → a-ven → a-men → AIDM; see [docs/product-map.md](docs/product-map.md).
 
 Parked ideas and polish intent (not a roadmap promise): see [`IDEAS.md`](IDEAS.md).
 
@@ -48,6 +50,12 @@ py -3.12 -m world_studio --reseed --seed void
 
 ```powershell
 py -3.12 -m world_studio --reseed --seed bootstrap
+```
+
+**Tavern** — mystic last-call latch (incomplete folios, innkeep, unnumbered rooms):
+
+```powershell
+py -3.12 -m world_studio --reseed --seed tavern --world worlds/wick.world.db
 ```
 
 If `py` is not on PATH, use the full installer path:
@@ -111,6 +119,19 @@ python -m world_studio --reseed --seed bootstrap
 
 Start: **Herenow** (instance of prime **Place**) · realm **Base** / timeline **Start**.  
 You are **Builder** (`person/archetype`). No floor props, no paths — dig your own ditch.
+
+### Tavern seed (Wick & Whisper)
+
+```powershell
+python -m world_studio --reseed --seed tavern --world worlds/wick.world.db
+```
+
+Start: **The Wick & Whisper** (`Candlelit` / `Last Call`).  
+Primes are kinds (**Landing**, **Key**, **Door**, **Ledger**…); flavor is on instances  
+(**Unnumbered Landing**, **Key to Rooms Not Yet Built**, **Brass Door**…).  
+Landing: locked **Brass Door** → Soft Suite (`unlock` with the key, then `open`).  
+Also: incomplete Guest Ledger + Chapter Left on the Table · Mirelle · cellar.  
+`folio open ledger` · `folio page add … <<studio`.
 
 ### Builder loop (example)
 

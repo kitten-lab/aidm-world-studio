@@ -39,15 +39,15 @@ class LookHierarchyTests(unittest.TestCase):
         # Prose separate from lists (descriptions stay mixed case)
         self.assertIn("White stone", text)
         self.assertIn("cracked mirror", text)
-        # Layered context under title: kind | realm | timeline
-        self.assertIn("place", text.lower())
+        # Look location: subtype only (none here) · realm | timeline — no root "place"
         self.assertIn("Material", text)
         self.assertIn("Prime", text)
-        self.assertRegex(text, r"place\s+\|\s+Material\s+\|\s+Prime")
+        self.assertRegex(text, r"Material\s+\|\s+Prime")
+        self.assertNotRegex(text, r"place\s+\|\s+Material")
         # paths inline on look (grouped list)
         self.assertIn("Paths", text)
         self.assertIn("through the mirror", text)
-        # Things / feelings
+        # Loose presence under Here
         self.assertIn("Silver Thread", text)
         self.assertIn("Liturgical Hush", text)
 

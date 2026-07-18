@@ -112,13 +112,11 @@ class LookDisplaySmokeTests(unittest.TestCase):
         self.assertNotIn("THE-CATHEDRAL-OF-ORDINARY-LIGHT", text)
         self.assertIn("Silver Thread", text)
         self.assertNotIn("SILVER-THREAD", text)
-        self.assertIn("thing", text)
-        self.assertIn("sense", text)
-        # Color is on the entity name, not the kind word as the primary tint
+        # Presence: prime · name · short ref (no kind/subtype columns)
+        self.assertRegex(text, r"THG-\d{3}-\d{4}")
+        self.assertRegex(text, r"SNS-\d{3}-\d{4}")
         mat = kind_color("thing")
         self.assertIn(f"[{mat}]Silver Thread[/{mat}]", result.message)
-        self.assertIn("[dim]thing[/dim]", result.message)
-        self.assertNotIn(f"[{mat}]thing[/{mat}]", result.message)
 
     def test_story_look_colors_instance_names(self) -> None:
         tmp = tempfile.NamedTemporaryFile(suffix=".world.db", delete=False)
@@ -131,7 +129,7 @@ class LookDisplaySmokeTests(unittest.TestCase):
         self.assertIn("The Hearth of Unfinished Maps", text)
         self.assertIn("Quiet Invitation", text)
         self.assertNotIn("QUIET-INVITATION", text)
-        self.assertIn("sense", text)
+        self.assertRegex(text, r"SNS-\d{3}-\d{4}")
         feel = kind_color("sense")
         realm = kind_color("realm")
         place = kind_color("place")
@@ -139,9 +137,7 @@ class LookDisplaySmokeTests(unittest.TestCase):
         self.assertIn(f"[{realm}]Woven[/{realm}]", result.message)
         # place title uses bold + place color
         self.assertIn(f"[bold {place}]", result.message)
-        # realm/timeline names are colored; kind words on presence stay dim
         self.assertNotIn(f"[{realm}]realm[/{realm}]", result.message)
-        self.assertIn("[dim]sense[/dim]", result.message)
 
     def test_look_things_show_prime_ven_when_retitled(self) -> None:
         """Instance title + kind + source prime (spawn as …)."""
@@ -165,15 +161,10 @@ class LookDisplaySmokeTests(unittest.TestCase):
         self.assertTrue(result.ok, msg=result.message)
         text = plain(result.message)
         self.assertIn("Something Mattered Here: The Forgetting House", text)
-        self.assertIn("thing", text)
         self.assertIn("Video Game", text)
-        # same-name instances do not repeat prime after kind
+        self.assertRegex(text, r"THG-\d{3}-\d{4}")
+        # same-name instances still show prime + name + code
         self.assertIn("Unfinished Quill", text)
-        # avoid "Unfinished Quill  thing  Unfinished Quill"
-        self.assertNotRegex(
-            text,
-            r"Unfinished Quill\s+thing\s+Unfinished Quill",
-        )
 
     def test_resolution_still_accepts_whole_token(self) -> None:
         tmp = tempfile.NamedTemporaryFile(suffix=".world.db", delete=False)

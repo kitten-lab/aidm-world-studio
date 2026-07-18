@@ -113,18 +113,52 @@ class InstanceDescLoreTests(unittest.TestCase):
         self.assertIn("No instance lore", listed_b)
         self.assertNotIn("Origin", listed_b)
 
-        # examine signals related lore on A
+        # examine signals related lore on A (shallow = count, not body)
         ex_a = plain(dispatch(self.world, "examine coin alpha").message)
         self.assertRegex(ex_a.lower(), r"2 related lore|lore revision")
+        self.assertNotIn("Alpha only lore.", ex_a)
         ex_b = plain(dispatch(self.world, "examine coin beta").message)
         # beta may still show 0 or only ven lore — not Alpha's instance rows
         self.assertNotIn("Origin", ex_b)
+
+        # examine --deep prints full lore bodies
+        deep_ex = plain(dispatch(self.world, "examine --deep coin alpha").message)
+        self.assertIn("Origin", deep_ex)
+        self.assertIn("Alpha only lore.", deep_ex)
+        self.assertIn("Pocket note", deep_ex)
+        self.assertIn("Found in the hem.", deep_ex)
+
+        # in deep at … and look --deep at … are the same idea
+        in_deep = plain(dispatch(self.world, "in deep at coin alpha").message)
+        self.assertIn("Alpha only lore.", in_deep)
+        look_deep = plain(
+            dispatch(self.world, "look --deep at coin alpha").message
+        )
+        self.assertIn("Alpha only lore.", look_deep)
+        look_trail = plain(dispatch(self.world, "look coin alpha deep").message)
+        self.assertIn("Found in the hem.", look_trail)
 
         # undo last lore add
         dispatch(self.world, "undo")
         lore_a2 = list(self.world.lore_for("instance", alpha.id))
         self.assertEqual(len(lore_a2), 1)
         self.assertEqual(lore_a2[0]["title"], "Origin")
+
+    def test_look_deep_place_lore(self) -> None:
+        """look --deep expands place lore; plain look only hints the count."""
+        r = dispatch(
+            self.world,
+            "lore add Founding | The hearth was raised for travelers.",
+        )
+        self.assertTrue(r.ok, msg=r.message)
+        shallow = plain(dispatch(self.world, "look").message)
+        self.assertRegex(shallow.lower(), r"lore revision")
+        self.assertNotIn("raised for travelers", shallow.lower())
+        deep = plain(dispatch(self.world, "look --deep").message)
+        self.assertIn("Founding", deep)
+        self.assertIn("raised for travelers", deep.lower())
+        deep2 = plain(dispatch(self.world, "look deep").message)
+        self.assertIn("Founding", deep2)
 
     def test_no_elevate_required(self) -> None:
         """Instance still shares the same prime VEN after desc/lore."""

@@ -20,14 +20,16 @@ _VEN_CODE_INST_RE = re.compile(
 KIND_CODE_PREFIX: dict[str, str] = {
     "person": "PER",
     "place": "PLC",
-    "container": "CTR",
+    "bin": "BIN",
     "thing": "THG",
     "folio": "FOL",
     "symbol": "SYM",
     "sense": "SNS",
+    "event": "EVT",
     "realm": "RLM",
     "timeline": "TLN",
     # legacy (read/compat; create folds these away)
+    "container": "CTR",  # old store-root codes still parse
     "object": "OBJ",
     "book": "BOK",
     "material": "MAT",
@@ -36,7 +38,6 @@ KIND_CODE_PREFIX: dict[str, str] = {
     "goal": "GOL",
     "desire": "DES",
     "purpose": "PUR",
-    "event": "EVT",
     "archetype": "ARC",
     "other": "OTH",
 }
@@ -58,15 +59,32 @@ def format_ven_code(prefix: str, n: int) -> str:
     return f"{p}-{n:03d}"
 
 
+def normalize_ref_separators(raw: str | None) -> str:
+    """
+    Soft code typing: spaces / underscores act like dashes.
+
+    ``bin 003 0043`` → ``BIN-003-0043``; ``BIN_003`` → ``BIN-003``.
+    """
+    if raw is None:
+        return ""
+    s = str(raw).strip().lstrip("#").upper()
+    if not s:
+        return ""
+    s = s.replace("_", "-")
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"-+", "-", s)
+    return s.strip("-")
+
+
 def parse_ven_code(raw: str | None) -> str | None:
     """
     Normalize a typed VEN code to canonical XXX-NNN, or None if not a code.
 
-    Accepts rlm-1, RLM-001, rlm001 (with or without dash).
+    Accepts rlm-1, RLM-001, rlm001, ``bin 3``, ``BIN 003`` (spaces ok).
     """
     if raw is None:
         return None
-    s = str(raw).strip().upper().replace("_", "-")
+    s = normalize_ref_separators(raw)
     if not s:
         return None
     m = _VEN_CODE_RE.fullmatch(s)
@@ -332,18 +350,37 @@ def parse_instance_ref_token(token: str) -> str | None:
     Accepts:
       #0001 / 0001 / #1 → digit form ``0001``
       #FIELD-NOTES-0002 / FIELD-NOTES-0002 → composite ``FIELD-NOTES-0002``
+      BIN-003-0043 / bin 003 0043 / BIN 3 43 → ``BIN-003-0043``
     """
-    t = token.strip()
+    t = (token or "").strip()
     if t.startswith("#"):
         t = t[1:].strip()
     if not t:
         return None
+    # Soft separators before digit-only check (multi-token codes)
+    soft = normalize_ref_separators(t)
+    if soft.isdigit():
+        return format_instance_ref(int(soft))
     if t.isdigit():
         return format_instance_ref(int(t))
-    # SLUG-…-NNNN (slug may contain hyphens)
-    m = re.fullmatch(r"(.+)-(\d+)$", t)
+    # Compact VEN code + instance digits: XXX-NNN-NNNN
+    m_code = re.fullmatch(r"([A-Z]{3})-(\d{1,4})-(\d{1,4})", soft)
+    if m_code:
+        return format_instance_short_ref(
+            m_code.group(1),
+            int(m_code.group(3)),
+            ven_code=format_ven_code(m_code.group(1), int(m_code.group(2))),
+        )
+    # SLUG-…-NNNN (slug may contain hyphens) — use soft form
+    m = re.fullmatch(r"(.+)-(\d+)$", soft)
     if m:
         slug_part, num = m.group(1), m.group(2)
+        # Prefer VEN-code composite when left side is a code
+        left_code = parse_ven_code(slug_part)
+        if left_code:
+            return format_instance_short_ref(
+                left_code, int(num), ven_code=left_code
+            )
         return format_instance_short_ref(slug_part, int(num))
     return None
 
@@ -353,15 +390,17 @@ def parse_resolve_query(query: str) -> tuple[str, str | None, str | None]:
     Split a player name query into (base_name, where, short_ref).
 
     where: 'here' | 'inv' | None
-    short_ref: digit ``0001`` and/or composite ``FIELD-NOTES-0001``
+    short_ref: digit ``0001`` and/or composite ``FIELD-NOTES-0001`` / ``BIN-003-0043``
+
+    Soft codes: spaces/underscores count as dashes
+    (``bin 003 0043`` → instance ref ``BIN-003-0043``).
 
     Examples:
       field-notes inv
-      field-notes here
       field-notes#0002
-      field-notes#FIELD-NOTES-0002
-      field-notes #2
       FIELD-NOTES-0002
+      bin 003 0043
+      BIN-003-0043
       Pocket Notes
     """
     raw = query.strip()
@@ -379,15 +418,29 @@ def parse_resolve_query(query: str) -> tuple[str, str | None, str | None]:
         tokens = tokens[:-1]
         raw = " ".join(tokens).strip()
 
+    if not raw:
+        return "", where, None
+
+    soft = normalize_ref_separators(raw)
+    # Whole query is compact instance code: XXX-NNN-NNNN (spaces ok in input)
+    if re.fullmatch(r"[A-Z]{3}-\d{1,4}-\d{1,4}", soft):
+        maybe = parse_instance_ref_token(soft)
+        if maybe:
+            return "", where, maybe
+
+    # Whole query is single-token composite short ref (slug or dashed form)
+    if " " not in raw.strip():
+        maybe = parse_instance_ref_token(raw)
+        if maybe and ("-" in raw or raw.lstrip("#").isdigit()):
+            return "", where, maybe
+
     # Embedded or trailing #ref
     if "#" in raw:
         left, right = raw.rsplit("#", 1)
-        right_tok = right.split()[0] if right.split() else ""
-        maybe = parse_instance_ref_token(right_tok)
+        maybe = parse_instance_ref_token(right.strip())
         if maybe:
             ref = maybe
-            rest_right = " ".join(right.split()[1:]).strip()
-            raw = f"{left} {rest_right}".strip()
+            raw = left.strip()
     else:
         tokens = raw.split()
         if tokens:
@@ -397,9 +450,5 @@ def parse_resolve_query(query: str) -> tuple[str, str | None, str | None]:
             if maybe and tok.isdigit() and len(tokens) > 1:
                 ref = maybe
                 raw = " ".join(tokens[:-1]).strip()
-            # whole query is a composite short ref alone
-            elif maybe and "-" in tok and len(tokens) == 1:
-                ref = maybe
-                raw = ""
 
     return raw, where, ref

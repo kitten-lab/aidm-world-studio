@@ -13,8 +13,10 @@ from world_studio.seed import seed_world_story
 from world_studio.studio_text import (
     FORMAT_HEADER,
     detect_format,
+    is_openable_url,
     prepare_stored_text,
     render_body,
+    render_open_link,
     render_studio_text,
     with_studio_header,
 )
@@ -120,6 +122,54 @@ literal line
         self.assertIn("┌", p)  # light content-sized box
         self.assertIn("└", p)
         self.assertIn("│", p)
+
+    def test_external_links_md_and_bare(self) -> None:
+        """Markdown and bare https links become clickable open_url markup."""
+        out = render_studio_text(
+            "See [docs](https://example.com/path) and https://x.ai/ for more."
+        )
+        self.assertIn("@click=app.open_url('https://example.com/path')", out)
+        self.assertIn("@click=app.open_url('https://x.ai/')", out)
+        self.assertIn("underline", out)
+        p = plain(out)
+        self.assertIn("docs", p)
+        self.assertIn("https://x.ai/", p)
+        # trailing prose punctuation not swallowed into the URL
+        out2 = render_studio_text("go https://example.com.")
+        self.assertIn("@click=app.open_url('https://example.com')", out2)
+        self.assertTrue(out2.rstrip().endswith(".") or plain(out2).endswith("."))
+        # code fence keeps URLs literal (no click action)
+        out3 = render_studio_text("use `https://example.com` as text")
+        self.assertNotIn("@click=", out3)
+        self.assertIn("https://example.com", plain(out3))
+        # unsafe / non-http stays plain
+        self.assertFalse(is_openable_url("javascript:alert(1)"))
+        self.assertFalse(is_openable_url("file:///etc/passwd"))
+        self.assertTrue(is_openable_url("https://example.com"))
+        plain_bad = render_open_link("javascript:alert(1)", "nope")
+        self.assertNotIn("@click=", plain_bad)
+        self.assertIn("nope", plain(plain_bad))
+
+    def test_field_row_value_hangs_under_value_column(self) -> None:
+        """Long field values wrap with hang indent, not column 0."""
+        long = "word " * 40  # well past measure 72
+        src = f":Notes: {long.strip()}\n:Ok: yes\n"
+        p = plain(render_studio_text(src))
+        lines = [ln for ln in p.splitlines() if ln.strip()]
+        self.assertGreaterEqual(len(lines), 2)
+        # First line has label; later lines are pure value with leading spaces
+        notes_lines = [ln for ln in lines if "word" in ln or ln.lstrip().startswith("word")]
+        # At least one continuation (hang) after the first Notes line
+        self.assertGreaterEqual(len(notes_lines), 2)
+        first = notes_lines[0]
+        cont = notes_lines[1]
+        self.assertIn("Notes", first)
+        self.assertNotIn("Notes", cont)
+        # Continuation starts at value column (spaces), not left edge of content
+        self.assertTrue(cont.startswith(" "), msg=repr(cont[:20]))
+        # Value column: padded "Notes" (min 8) + two spaces
+        hang = first.index("word")
+        self.assertEqual(cont.index("word"), hang, msg=f"first={first!r}\ncont={cont!r}")
 
     def test_field_rows_align_value_column(self) -> None:
         """Contiguous :Key: value (and bare Key: value) share one pad width."""

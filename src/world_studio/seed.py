@@ -1,4 +1,4 @@
-"""Seed sample multiverses: story, classic, and void (blank canvas)."""
+"""Seed sample multiverses: story, classic, void, tavern, bootstrap."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ import sqlite3
 from .db import init_schema, set_meta
 from .world import World
 
-SEED_FLAVORS = ("story", "classic", "void")
+SEED_FLAVORS = ("story", "classic", "void", "tavern", "bootstrap")
 
 
 def seed_world(conn: sqlite3.Connection, flavor: str = "story") -> None:
-    """Seed a new world. flavor: story | classic | void | bootstrap."""
+    """Seed a new world. flavor: story | classic | void | tavern | bootstrap."""
     flavor = (flavor or "story").lower().strip()
     if flavor == "classic":
         seed_world_classic(conn)
@@ -19,6 +19,8 @@ def seed_world(conn: sqlite3.Connection, flavor: str = "story") -> None:
         seed_world_void(conn)
     elif flavor in ("bootstrap", "bare", "minimal", "nothing"):
         seed_world_bootstrap(conn)
+    elif flavor in ("tavern", "wick", "whisper", "lantern"):
+        seed_world_tavern(conn)
     else:
         seed_world_story(conn)
 
@@ -717,3 +719,442 @@ def seed_world_bootstrap(conn: sqlite3.Connection) -> None:
 
     set_meta(conn, "world_name", "Bootstrap")
     set_meta(conn, "seed_version", "bootstrap-3")
+
+
+def seed_world_tavern(conn: sqlite3.Connection) -> None:
+    """
+    Mystic tavern latch: start at last call in The Wick & Whisper.
+
+    Primes are *kinds* (Landing, Key, Door, Ledger…); flavor lives on instances
+    (Unnumbered Landing, Key to Rooms Not Yet Built…). Incomplete folios + a
+    locked suite door teach portal/key without flooding the VEN root.
+    """
+    init_schema(conn)
+    w = World(conn)
+
+    # ── Layers ───────────────────────────────────────────────────────────
+    realm_wick = w.create_ven(
+        "Candlelit",
+        "realm",
+        "Wherever a lamp is left low enough that secrets can pull up a chair.",
+    )
+    tl_last = w.create_ven(
+        "Last Call",
+        "timeline",
+        "The hour that stretches. Closing never quite arrives.",
+    )
+    r_wick = w.instantiate(realm_wick)
+    t_last = w.instantiate(tl_last)
+
+    def _here(
+        ven_id: str,
+        *,
+        name: str | None = None,
+        desc: str | None = None,
+    ) -> str:
+        return w.instantiate(
+            ven_id,
+            name_override=name,
+            description_override=desc,
+            realm_instance_id=r_wick,
+            timeline_instance_id=t_last,
+        )
+
+    # ── Place primes (kinds) → named rooms ───────────────────────────────
+    room_ven = w.create_ven(
+        "Tavern Room",
+        "place",
+        "A room that holds smoke, coin, and unfinished sentences.",
+        tags=["tavern", "room"],
+        meta={"subtype": "room"},
+    )
+    booth_ven = w.create_ven(
+        "Booth",
+        "place",
+        "A private alcove; curtains optional, secrets less so.",
+        tags=["tavern", "booth"],
+        meta={"subtype": "booth"},
+    )
+    landing_ven = w.create_ven(
+        "Landing",
+        "place",
+        "A stair end. Doors may or may not have decided to exist yet.",
+        tags=["tavern", "landing"],
+        meta={"subtype": "landing"},
+    )
+    cellar_ven = w.create_ven(
+        "Cellar",
+        "place",
+        "Cool stone under a house that remembers pours.",
+        tags=["tavern", "cellar"],
+        meta={"subtype": "cellar"},
+    )
+    suite_ven = w.create_ven(
+        "Suite",
+        "place",
+        "A room that opens only when someone means it.",
+        tags=["tavern", "suite", "portal-dest"],
+        meta={"subtype": "room"},
+    )
+
+    common = _here(
+        room_ven,
+        name="The Wick & Whisper",
+        desc=(
+            "Smoke and orange light. A long bar wears water-rings like years.\n"
+            "Someone has left a guest ledger open to a blank line with your elbow on it.\n"
+            "The room does not ask where you came from — only what you still owe the story."
+        ),
+    )
+    booth = _here(
+        booth_ven,
+        name="The Quiet Booth",
+        desc=(
+            "Curtain half-drawn. One candle, two cups, and a folio open mid-sentence\n"
+            "as if the author only stood up for more wine."
+        ),
+    )
+    landing = _here(
+        landing_ven,
+        name="Unnumbered Landing",
+        desc=(
+            "A short stair ends in doors without numbers.\n"
+            "Brass plates wait blank. The house says rooms appear when chapters do."
+        ),
+    )
+    cellar = _here(
+        cellar_ven,
+        name="Cellar of Unfinished Toasts",
+        desc=(
+            "Cool stone. Bottles labeled with years that never finished bottling.\n"
+            "Dust tastes like applause that never quite started."
+        ),
+    )
+    soft_suite = _here(
+        suite_ven,
+        name="Soft Suite",
+        desc=(
+            "Lamp low. One window that faces a weather the street does not have.\n"
+            "The bed is made as if someone might stay long enough to finish a chapter."
+        ),
+    )
+
+    # Links from the common room (paths — not portals)
+    w.link(
+        common,
+        booth,
+        "into the quiet booth",
+        "spatial",
+        bidirectional=True,
+        reverse_label="back to the common room",
+    )
+    w.link(
+        common,
+        landing,
+        "up the unnumbered stairs",
+        "spatial",
+        bidirectional=True,
+        reverse_label="down to the common room",
+    )
+    w.link(
+        common,
+        cellar,
+        "down the rumor stair",
+        "spatial",
+        bidirectional=True,
+        reverse_label="up into the light",
+    )
+
+    # ── Thing primes → named props ───────────────────────────────────────
+    candle_ven = w.create_ven(
+        "Candle",
+        "thing",
+        "Wax and wick; burns at the pace of the room.",
+        tags=["prop", "light"],
+    )
+    key_ven = w.create_ven(
+        "Key",
+        "thing",
+        "Teeth and silence. Each copy only opens what it was locked to.",
+        tags=["prop", "key"],
+        meta={"subtype": "key"},
+    )
+    bottle_ven = w.create_ven(
+        "Bottle",
+        "thing",
+        "Glass that keeps a secret better than most people.",
+        tags=["prop", "drink"],
+    )
+    door_ven = w.create_ven(
+        "Door",
+        "thing",
+        "A portal token: not a path, a room that waits behind open/unlock.",
+        tags=["prop", "door", "portal"],
+        meta={"subtype": "door"},
+    )
+
+    candle = _here(
+        candle_ven,
+        name="Candle of Shared Endings",
+        desc="Burns slower when someone nearby is mid-chapter.",
+    )
+    w.put_in(candle, common, slot="interior")
+
+    suite_key = _here(
+        key_ven,
+        name="Key to Rooms Not Yet Built",
+        desc=(
+            "Cold brass. Fits the Brass Door on the landing — "
+            "and only that copy, not every Key in the house."
+        ),
+    )
+    w.put_in(suite_key, landing, slot="interior")
+
+    bottle = _here(
+        bottle_ven,
+        name="Bottle of the Unsaid",
+        desc="Sealed with wax the color of a withheld apology. Do not open sober.",
+    )
+    w.put_in(bottle, cellar, slot="interior")
+
+    brass_door = _here(
+        door_ven,
+        name="Brass Door",
+        desc=(
+            "No number on the plate. The metal is warm, as if a room behind it "
+            "has already decided you might come in — if you have the right key."
+        ),
+    )
+    w.put_in(brass_door, landing, slot="interior")
+    w.set_portal_to(brass_door, soft_suite)
+    w.set_portal_key_instance_id(brass_door, suite_key)
+    w.set_portal_locked(brass_door, True)
+    w.set_portal_lock_deny(
+        brass_door,
+        "The plate stays blank. Somewhere a key is laughing quietly on the floor.",
+    )
+
+    # ── Sense primes → mood copies ───────────────────────────────────────
+    mood_ven = w.create_ven(
+        "Mood",
+        "sense",
+        "Weather that lives on people and rooms.",
+        tags=["sense"],
+    )
+    hush = w.instantiate(
+        mood_ven,
+        name_override="Almost Last Call",
+        description_override="The night is leaning in. One more page would not hurt.",
+    )
+    w.put_in(hush, common, slot="feeling")
+
+    tease = w.instantiate(
+        mood_ven,
+        name_override="Teasing Omniscience",
+        description_override=(
+            "She has read the ending. She will not spoil it. She might refill your cup."
+        ),
+    )
+
+    # ── Person primes → named people ─────────────────────────────────────
+    builder_ven = w.create_ven(
+        "Builder",
+        "person",
+        "The one who makes — ink under the nails, story half paid for.",
+        tags=["player"],
+    )
+    builder = _here(
+        builder_ven,
+        name="Builder",
+        desc="You — ink under the nails, coin still warm from the road, a story half paid for.",
+    )
+    w.put_in(builder, common, slot="interior")
+    w.set_player(builder)
+
+    innkeep_ven = w.create_ven(
+        "Innkeep",
+        "person",
+        "Keeps the pours and the unfinished guests.",
+        tags=["tavern", "keeper"],
+    )
+    innkeep = _here(
+        innkeep_ven,
+        name="Mirelle of the Last Pour",
+        desc=(
+            "Innkeep. Knows who left mid-sentence and who still owes a chapter.\n"
+            "Smiles like a spoiler she will not say."
+        ),
+    )
+    w.put_in(innkeep, common, slot="interior")
+    w.put_in(tease, innkeep, slot="feeling")
+
+    regular_ven = w.create_ven(
+        "Regular",
+        "person",
+        "Always here. Rarely speaks. Finishes other people's silences.",
+        tags=["tavern"],
+    )
+    regular = _here(
+        regular_ven,
+        name="The Regular Who Never Speaks",
+        desc="Empty glass. Full attention. Has been finishing other people's silences for years.",
+    )
+    w.put_in(regular, booth, slot="interior")
+
+    # ── Folio primes → named books ───────────────────────────────────────
+    ledger_ven = w.create_ven(
+        "Ledger",
+        "folio",
+        "A book that keeps accounts of people and pages.",
+        tags=["folio", "ledger"],
+    )
+    ledger = _here(
+        ledger_ven,
+        name="Guest Ledger of the Wick & Whisper",
+        desc=(
+            "Bound in something that once was a coat. "
+            "Names arrive in different hands. Many lines end in dash —"
+        ),
+    )
+    w.put_in(ledger, common, slot="interior")
+    w.add_book_page(
+        ledger,
+        "House Rules for the Unfinished",
+        (
+            "1. Pay in coin or in pages — the house accepts both.\n"
+            "2. Do not close a book that is still breathing.\n"
+            "3. If you leave mid-chapter, leave the key on the ledger.\n"
+            "4. Mirelle already knows. Write anyway.\n"
+            "\n"
+            "— posted above the bar, rewritten whenever the ink fades"
+        ),
+    )
+    w.add_book_page(
+        ledger,
+        "Tonight's Blank Lines",
+        (
+            "Guest: _______________\n"
+            "Came from: _______________\n"
+            "Owes the house: _______________\n"
+            "First true sentence of the night:\n"
+            "\n"
+            "    _______________________________________________\n"
+            "\n"
+            "(Mirelle's hand in the margin: fill this or the stairs stay unnumbered.)\n"
+            "\n"
+            "Tip: folio page add ledger <title> <<studio\n"
+            "Prime/instance: create thing/key Key · spawn key as Your Key Name"
+        ),
+    )
+    w.set_book_incomplete(ledger, True)
+
+    manuscript_ven = w.create_ven(
+        "Manuscript",
+        "folio",
+        "A thin book mid-story; endings optional.",
+        tags=["folio", "romance"],
+    )
+    chapter = _here(
+        manuscript_ven,
+        name="Chapter Left on the Table",
+        desc=(
+            "A slim romance someone abandoned between pours. "
+            "The spine still warm. The ending is a dare."
+        ),
+    )
+    w.put_in(chapter, booth, slot="interior")
+    w.add_book_page(
+        chapter,
+        "I. The Door That Knew Your Name",
+        (
+            "They said the Wick & Whisper only appears to people who have a sentence left in them.\n"
+            "You laughed — and then the door was there, lamp low, as if it had always been waiting\n"
+            "with your coat already on the hook.\n"
+            "\n"
+            "Inside: orange light, a ledger open to a blank, and a woman behind the bar who looked\n"
+            "at you the way a last page looks at a hand that might still write.\n"
+            "\n"
+            "\"Stay,\" she said, which was not an order.\n"
+            "\"Or go upstairs. The rooms are shy until someone finishes them.\""
+        ),
+    )
+    w.add_book_page(
+        chapter,
+        "II. (unwritten — your turn)",
+        (
+            "The next leaf is pale on purpose.\n"
+            "\n"
+            "Whoever sat here last wrote only this in the gutter:\n"
+            "    if you love them, give them a room with a window\n"
+            "    if you fear them, give them a cellar\n"
+            "    if you are them — write\n"
+            "\n"
+            "folio page edit chapter 2 <<studio\n"
+            "— or add leaf 3 and refuse to explain yourself"
+        ),
+    )
+    w.set_book_incomplete(chapter, True)
+
+    # ── Lore (on lived rooms, not only primes) ───────────────────────────
+    w.add_lore(
+        "instance",
+        common,
+        body=(
+            "Raised on a crossroads that only exists at last call. "
+            "Travelers who cannot finish a story find the door first."
+        ),
+        title="Where the Wick Was Lit",
+        timeline_instance_id=t_last,
+        when_label="Before the Numbers",
+        author="seed",
+    )
+    w.add_lore(
+        "instance",
+        landing,
+        body=(
+            "Brass plates stay blank until a folio page is true enough to hang a number on. "
+            "The Brass Door is a portal (not a path): unlock with the key on the floor, then open. "
+            "Or dig your own suite and spawn another Door + Key pair."
+        ),
+        title="Unnumbered on Purpose",
+        timeline_instance_id=t_last,
+        when_label="Last Call",
+        author="seed",
+    )
+    w.add_lore(
+        "ven",
+        ledger_ven,
+        body=(
+            "Ledger is the kind; Guest Ledger of the Wick & Whisper is tonight's copy. "
+            "Add pages. The stairs notice."
+        ),
+        title="Motif · Debt of Pages",
+        author="seed",
+    )
+    w.add_lore(
+        "instance",
+        booth,
+        body=(
+            "Lovers, rivals, and cowards all pick the same booth. "
+            "The Regular never speaks; the manuscript does."
+        ),
+        title="Why the Curtain Stays Half-Drawn",
+        timeline_instance_id=t_last,
+        when_label="Last Call",
+        author="seed",
+    )
+    w.add_lore(
+        "instance",
+        brass_door,
+        body=(
+            "Portal → Soft Suite. Locked to Key to Rooms Not Yet Built (this copy only). "
+            "Sibling Keys from prime Key will not open it."
+        ),
+        title="How the Brass Door Works",
+        timeline_instance_id=t_last,
+        when_label="Last Call",
+        author="seed",
+    )
+
+    set_meta(conn, "world_name", "Wick & Whisper")
+    set_meta(conn, "seed_version", "tavern-2")

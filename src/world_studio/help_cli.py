@@ -1,4 +1,4 @@
-"""Standalone help CLI — open in a second terminal beside AIDM World Studio.
+"""Standalone help CLI — open in a second terminal beside World Builder Studio.
 
 No world DB, no play session. Same topic catalog as in-game help.
 

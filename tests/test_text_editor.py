@@ -16,8 +16,56 @@ from world_studio.multiline_open import (
 )
 from world_studio.seed import seed_world_story
 from world_studio.studio_text import is_studio
-from world_studio.text_editor import set_editor_hook
+from world_studio.text_editor import (
+    _editor_hint_markup,
+    _preview_markup,
+    set_editor_hook,
+    word_bounds_at,
+)
 from world_studio.world import World
+
+
+class WordBoundsTests(unittest.TestCase):
+    def test_word_under_cursor(self) -> None:
+        line = "hello castaways world"
+        # on 'c' of castaways
+        self.assertEqual(word_bounds_at(line, 6), (6, 15))
+        # just after word (cursor after 's')
+        self.assertEqual(word_bounds_at(line, 15), (6, 15))
+        # first word
+        self.assertEqual(word_bounds_at(line, 0), (0, 5))
+        # cursor on space *after* a word still selects that word (common editor UX)
+        self.assertEqual(word_bounds_at(line, 5), (0, 5))
+        # underscore / alnum
+        self.assertEqual(word_bounds_at("soft_launch", 4), (0, 11))
+        # pure whitespace / empty → none
+        self.assertIsNone(word_bounds_at("", 0))
+        self.assertIsNone(word_bounds_at("   ", 1))
+        self.assertIsNone(word_bounds_at("  between  ", 1))
+
+
+class PreviewMarkupTests(unittest.TestCase):
+    def test_empty_buffer_message(self) -> None:
+        self.assertIn("empty", _preview_markup("", studio=True).lower())
+        self.assertIn("empty", _preview_markup("   ", studio=False).lower())
+
+    def test_plain_escapes_markup_brackets(self) -> None:
+        out = _preview_markup("a [b] c", studio=False)
+        # plain path uses safe() so raw [tags] are escaped for Rich
+        self.assertIn(r"\[b]", out)
+
+    def test_studio_renders_bold(self) -> None:
+        out = _preview_markup("**hello** world", studio=True)
+        self.assertIn("bold", out.lower())
+        self.assertIn("hello", out)
+
+    def test_hint_shows_preview_mode(self) -> None:
+        edit = _editor_hint_markup("t", studio=True, preview=False)
+        prev = _editor_hint_markup("t", studio=True, preview=True)
+        self.assertIn("EDIT", edit)
+        self.assertIn("PREVIEW", prev)
+        self.assertIn("F2", edit)
+        self.assertIn("preview", edit.lower())
 
 
 def _world() -> World:

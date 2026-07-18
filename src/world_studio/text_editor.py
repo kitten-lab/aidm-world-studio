@@ -2,7 +2,9 @@
 
 Opens a Textual TextArea (or optional $WORLD_STUDIO_EDITOR / $EDITOR) so the
 builder can move freely, edit, save (Ctrl+S) or cancel (Esc / Ctrl+Q).
-Ctrl+A selects all; Ctrl+X is left free for cut (not cancel).
+Ctrl+A selects all; F2 / Alt+P toggles markup preview (no commit — avoids
+VS Code stealing Ctrl+P); double-click selects a word; triple-click selects
+a line. Ctrl+X is left free for cut (not cancel).
 
 Tests inject :data:`_EDITOR_HOOK` to return a body without launching a TUI.
 """
@@ -14,7 +16,10 @@ import subprocess
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from textual.widgets._text_area import Location
 
 # (initial_text, title, studio) -> saved body or None if cancelled
 _EDITOR_HOOK: Callable[[str, str, bool], str | None] | None = None
@@ -94,6 +99,8 @@ def run_text_editor(
 
     Cancel: Esc or Ctrl+Q (not Ctrl+X — that is cut).
     Select all: Ctrl+A.
+    Preview: F2 or Alt+P toggles rendered markup without saving
+    (Ctrl+P is reserved by VS Code Quick Open when using the integrated terminal).
     """
     if _EDITOR_HOOK is not None:
         body = _EDITOR_HOOK(initial, title, studio)
@@ -209,6 +216,18 @@ EDITOR_CSS = """
     background: #000000;
     color: #e8e8ee;
 }
+#editor-preview-scroll {
+    height: 1fr;
+    border: solid #3a4a3a;
+    margin: 0 1 1 1;
+    background: #000000;
+}
+#editor-preview {
+    height: auto;
+    padding: 1 2;
+    background: #000000;
+    color: #e8e8ee;
+}
 """
 
 # Shared buffer chrome brand (desc, lore, folio leaves — not folio-only)
@@ -232,11 +251,87 @@ def _studio_writer_textarea_theme():
     )
 
 
+def word_bounds_at(line: str, column: int) -> tuple[int, int] | None:
+    """
+    Inclusive-start / exclusive-end columns of the word under *column*.
+
+    Word chars: Unicode alnum + underscore (editor-familiar). Returns None on
+    whitespace / empty so the caller can leave a bare cursor.
+    """
+    if not line:
+        return None
+    col = max(0, min(int(column), len(line)))
+
+    def is_word_char(ch: str) -> bool:
+        return ch.isalnum() or ch == "_"
+
+    if col < len(line) and is_word_char(line[col]):
+        i = col
+    elif col > 0 and is_word_char(line[col - 1]):
+        i = col - 1
+    else:
+        return None
+    start = i
+    while start > 0 and is_word_char(line[start - 1]):
+        start -= 1
+    end = i + 1
+    while end < len(line) and is_word_char(line[end]):
+        end += 1
+    return start, end
+
+
+def _make_studio_writer_textarea_class():
+    """
+    TextArea subclass: double-click → word, triple-click → line.
+
+    Stock Textual double-click uses widget-level select-all; we want editor
+    conventions inside STUDIO Writer.
+    """
+    from textual import events
+    from textual.widgets import TextArea
+    from textual.widgets.text_area import Selection
+
+    class StudioWriterTextArea(TextArea):
+        """STUDIO Writer body: mouse multi-click selection."""
+
+        def select_word_at(self, location: Location) -> None:
+            """Select the word containing *location* (or collapse if none)."""
+            row, col = self.clamp_visitable(location)
+            try:
+                line = self.document[row]
+            except IndexError:
+                self.selection = Selection.cursor((row, col))
+                return
+            bounds = word_bounds_at(line, col)
+            if bounds is None:
+                self.selection = Selection.cursor((row, col))
+                return
+            start_col, end_col = bounds
+            self.selection = Selection((row, start_col), (row, end_col))
+            self.record_cursor_width()
+
+        async def _on_click(self, event: events.Click) -> None:
+            # chain 2 = double, 3 = triple (Textual Click.chain)
+            if event.chain >= 2 and event.widget is self:
+                event.stop()
+                target = self.get_target_document_location(event)
+                if event.chain == 2:
+                    self.select_word_at(target)
+                else:
+                    # triple (or more): whole logical line
+                    self.select_line(target[0])
+                self.focus()
+                return
+            await super()._on_click(event)
+
+    return StudioWriterTextArea
+
+
 def _make_editor_textarea(initial: str):
     """TextArea for STUDIO Writer: light text on black, prefilled body."""
-    from textual.widgets import TextArea
+    StudioWriterTextArea = _make_studio_writer_textarea_class()
 
-    ta = TextArea(
+    ta = StudioWriterTextArea(
         text=initial or "",
         id="editor-body",
         # vscode_dark until mount registers studio_writer (instance method)
@@ -264,19 +359,37 @@ def _mount_editor_body(screen_or_app, initial: str) -> None:
 
 
 def _editor_hint_markup(
-    title: str, *, studio: bool, with_page_title: bool = False
+    title: str,
+    *,
+    studio: bool,
+    with_page_title: bool = False,
+    preview: bool = False,
 ) -> str:
     """Brand tag + save/cancel tips for the buffer header."""
     from .measure import CONTENT_MEASURE
 
     mode = "Studio Text" if studio else "plain"
+    view = "[bold green]PREVIEW[/]" if preview else "[bold]EDIT[/]"
     measure_note = f"  ·  measure {CONTENT_MEASURE}" if studio else ""
     title_note = "  ·  page title above" if with_page_title else ""
     return (
         f"[bold #d4a574]{STUDIO_WRITER_LABEL}[/]  ·  "
-        f"[bold]{title}[/bold]  ·  {mode}{measure_note}{title_note}  ·  "
-        f"Ctrl+A select all  ·  Ctrl+S save  ·  Esc / Ctrl+Q cancel"
+        f"[bold]{title}[/bold]  ·  {mode}  ·  {view}{measure_note}{title_note}  ·  "
+        f"F2/Alt+P preview  ·  Ctrl+A all  ·  Ctrl+S save  ·  Esc cancel"
     )
+
+
+def _preview_markup(source: str, *, studio: bool) -> str:
+    """Render buffer body for the preview pane (does not write storage)."""
+    from .format import safe
+    from .studio_text import render_studio_text
+
+    text = source if source is not None else ""
+    if not text.strip():
+        return "[dim](empty buffer)[/dim]"
+    if studio:
+        return render_studio_text(text)
+    return safe(text)
 
 
 def _editor_ruler_markup() -> str:
@@ -311,13 +424,22 @@ def make_studio_buffer_screen(
     class StudioBufferScreen(ModalScreen[StudioBufferResult | None]):
         CSS = EDITOR_CSS
         BINDINGS = [
+            # F2 / Alt+P: Ctrl+P is stolen by VS Code Quick Open in the integrated terminal
+            Binding("f2", "toggle_preview", "Preview", show=True, priority=True),
+            Binding("alt+p", "toggle_preview", "Preview", show=False, priority=True),
             Binding("ctrl+a", "select_all", "Select all", show=True, priority=True),
             Binding("ctrl+s", "save", "Save", show=True, priority=True),
             Binding("ctrl+q", "cancel", "Cancel", show=True, priority=True),
             Binding("escape", "cancel", "Cancel", show=True, priority=True),
         ]
 
+        def __init__(self) -> None:
+            super().__init__()
+            self._preview_mode = False
+
         def compose(self) -> ComposeResult:
+            from textual.containers import VerticalScroll
+
             yield Static(
                 _editor_hint_markup(
                     title, studio=studio, with_page_title=show_title
@@ -345,19 +467,73 @@ def make_studio_buffer_screen(
                     markup=True,
                 )
             yield _make_editor_textarea(initial or "")
+            with VerticalScroll(id="editor-preview-scroll"):
+                yield Static("", id="editor-preview", markup=True)
             yield Footer()
 
         def on_mount(self) -> None:
             _mount_editor_body(self, initial or "")
+            try:
+                self.query_one("#editor-preview-scroll").display = False
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _draft_text(self) -> str:
+            ta = self.query_one("#editor-body", TextArea)
+            return ta.text if ta is not None else ""
+
+        def _refresh_hint(self) -> None:
+            try:
+                hint = self.query_one("#editor-hint", Static)
+                hint.update(
+                    _editor_hint_markup(
+                        title,
+                        studio=studio,
+                        with_page_title=show_title,
+                        preview=self._preview_mode,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        def action_toggle_preview(self) -> None:
+            ta = self.query_one("#editor-body", TextArea)
+            scroll = self.query_one("#editor-preview-scroll")
+            prev = self.query_one("#editor-preview", Static)
+            if not self._preview_mode:
+                src = ta.text or ""
+                prev.update(_preview_markup(src, studio=studio))
+                ta.display = False
+                scroll.display = True
+                self._preview_mode = True
+                try:
+                    ruler = self.query_one("#editor-ruler")
+                    ruler.display = False
+                except Exception:  # noqa: BLE001
+                    pass
+                self.notify("Preview · F2 / Alt+P back to edit", timeout=2)
+            else:
+                scroll.display = False
+                ta.display = True
+                self._preview_mode = False
+                try:
+                    ruler = self.query_one("#editor-ruler")
+                    ruler.display = True
+                except Exception:  # noqa: BLE001
+                    pass
+                ta.focus()
+                self.notify("Edit", timeout=1)
+            self._refresh_hint()
 
         def action_select_all(self) -> None:
+            if self._preview_mode:
+                return
             ta = self.query_one("#editor-body", TextArea)
             ta.focus()
             ta.select_all()
 
         def action_save(self) -> None:
-            ta = self.query_one("#editor-body", TextArea)
-            text = ta.text
+            text = self._draft_text()
             if not (text or "").strip():
                 self.notify("Empty buffer — add text or cancel.", severity="warning")
                 return
@@ -368,6 +544,10 @@ def make_studio_buffer_screen(
             self.dismiss(StudioBufferResult(body=text, page_title=pt))
 
         def action_cancel(self) -> None:
+            if self._preview_mode:
+                # first Esc from preview returns to edit (safer than discard)
+                self.action_toggle_preview()
+                return
             self.dismiss(None)
 
     return StudioBufferScreen()
@@ -380,10 +560,10 @@ def _run_textual_editor(
     studio: bool,
     page_title: str | None = None,
 ) -> StudioBufferResult | None:
-    """Blocking Textual app with TextArea; Ctrl+A select all, Ctrl+S save, Esc / Ctrl+Q cancel."""
+    """Blocking Textual app; F2/Alt+P preview, Ctrl+A, Ctrl+S save, Esc / Ctrl+Q cancel."""
     from textual.app import App, ComposeResult
     from textual.binding import Binding
-    from textual.containers import Horizontal
+    from textual.containers import Horizontal, VerticalScroll
     from textual.widgets import Footer, Header, Input, Static, TextArea
 
     result: dict[str, StudioBufferResult | None] = {"out": None}
@@ -395,11 +575,16 @@ def _run_textual_editor(
             + EDITOR_CSS
         )
         BINDINGS = [
+            Binding("f2", "toggle_preview", "Preview", show=True, priority=True),
+            Binding("alt+p", "toggle_preview", "Preview", show=False, priority=True),
             Binding("ctrl+a", "select_all", "Select all", show=True, priority=True),
             Binding("ctrl+s", "save", "Save", show=True, priority=True),
             Binding("ctrl+q", "cancel", "Cancel", show=True, priority=True),
             Binding("escape", "cancel", "Cancel", show=True, priority=True),
         ]
+        def __init__(self) -> None:
+            super().__init__()
+            self._preview_mode = False
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
@@ -430,20 +615,74 @@ def _run_textual_editor(
                     markup=True,
                 )
             yield _make_editor_textarea(initial or "")
+            with VerticalScroll(id="editor-preview-scroll"):
+                yield Static("", id="editor-preview", markup=True)
             yield Footer()
 
         def on_mount(self) -> None:
             self.title = title
             _mount_editor_body(self, initial or "")
+            try:
+                self.query_one("#editor-preview-scroll").display = False
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _draft_text(self) -> str:
+            ta = self.query_one("#editor-body", TextArea)
+            return ta.text if ta is not None else ""
+
+        def _refresh_hint(self) -> None:
+            try:
+                hint = self.query_one("#editor-hint", Static)
+                hint.update(
+                    _editor_hint_markup(
+                        title,
+                        studio=studio,
+                        with_page_title=show_title,
+                        preview=self._preview_mode,
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+        def action_toggle_preview(self) -> None:
+            ta = self.query_one("#editor-body", TextArea)
+            scroll = self.query_one("#editor-preview-scroll")
+            prev = self.query_one("#editor-preview", Static)
+            if not self._preview_mode:
+                src = ta.text or ""
+                prev.update(_preview_markup(src, studio=studio))
+                ta.display = False
+                scroll.display = True
+                self._preview_mode = True
+                try:
+                    ruler = self.query_one("#editor-ruler")
+                    ruler.display = False
+                except Exception:  # noqa: BLE001
+                    pass
+                self.notify("Preview · F2 / Alt+P back to edit", timeout=2)
+            else:
+                scroll.display = False
+                ta.display = True
+                self._preview_mode = False
+                try:
+                    ruler = self.query_one("#editor-ruler")
+                    ruler.display = True
+                except Exception:  # noqa: BLE001
+                    pass
+                ta.focus()
+                self.notify("Edit", timeout=1)
+            self._refresh_hint()
 
         def action_select_all(self) -> None:
+            if self._preview_mode:
+                return
             ta = self.query_one("#editor-body", TextArea)
             ta.focus()
             ta.select_all()
 
         def action_save(self) -> None:
-            ta = self.query_one("#editor-body", TextArea)
-            text = ta.text
+            text = self._draft_text()
             if not (text or "").strip():
                 self.notify("Empty buffer — add text or cancel.", severity="warning")
                 return
@@ -455,6 +694,9 @@ def _run_textual_editor(
             self.exit()
 
         def action_cancel(self) -> None:
+            if self._preview_mode:
+                self.action_toggle_preview()
+                return
             result["out"] = None
             self.exit()
 

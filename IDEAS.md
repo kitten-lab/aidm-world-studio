@@ -1,7 +1,11 @@
 # Ideas (not committed to build)
 
-Living list of half-finished concepts and polish intents for **AIDM World Studio**.  
-Review occasionally; promote an item only when it beats “expand the engine again.”
+Living list of half-finished concepts and polish intents for **World Builder Studio (WBS)** — the **storypack / stage** surface.
+
+**Product split (2026-07):** VEN **production** is not the center of this repo. Use **[VEN Minter](../ven-minter/)** (`C:\Builds\ven-minter`) for mint / nest / export tree packs (inventory forms only). This tool **imports** packs and walks them. Mockups: `~/Downloads/AIDMStudio-Mockups` — multi-app Create/Manage/Play; stage ≈ SIM Play only.
+
+**Formal product names (in flux):** WBS / stage · VEN Minter / factory · AIDMStudio / OS later.  
+**AIDM** is *not* the app title — future narrative agent; **a-men** ladder: [docs/product-map.md](docs/product-map.md).
 
 **Larger product map (Silo / ADM / AIDM / Forestry / history):** see [docs/product-map.md](docs/product-map.md) — durable doctrine in-repo so it is not lost in chat. Includes **shipped** story-when backbone *and* **parked** extended ideas (bags, visit, fold, lock, event VENs).
 
@@ -55,22 +59,55 @@ Reorder, remove, and otherwise organize leaves inside a BOK from the reader (or 
 
 ## Parked — Office Space / Roadmaps (keep simple)
 
-**Context (2026-07-17):** Narrative **office** for telecommute product work (igaming, many titles/month). Confluence is disjointed; the bet is a *place* where roadmaps can be held and read. Greg may already have calendar-math in Python — **do not rebuild MS Project in the MUD.** Form printers / auto-calendars wait until the **in-room management shape** is clear.
+**Context:** Narrative **office** for telecommute product work (igaming, many titles/month). Confluence is disjointed; the bet is a *place* where roadmaps can be held and read. Greg may already have calendar-math in Python — **do not rebuild MS Project in the MUD.**
 
-### Method shift: folios first (not lore-as-wiki layout)
+### Method (live): quarter bin + game things + lore + link-out
 
-Prefer **`folio` roadmap tickets** (or folio leaves inside a title pack) for the **schedule surface**:
+**Why not folio-for-GDD + folio-for-schedule first:** too heavy. No tables/images; long GDD in leaves fights the TUI. That is why **outbound links** exist in studio text.
 
-- Edit in STUDIO Writer (`e` / `<<studio`) — already good for input.
-- **Field rows** for phase → date (aligned columns), not Confluence paste soup.
-- Board place still: put folio on board; walk Roadmaps room.
-- Lore/wiki later for *narrative* notes / rationale, not as the primary schedule grid.
+**Spatial shape = tools you already have:**
 
-**Parked until a real folio roadmap feels right:** receipt/form printer; Greg import; lore reorder as the *main* roadmap layout tool.
+| Role | Kind | How you read it |
+|------|------|-----------------|
+| Roadmaps room | `place` | `look` / `look --deep` |
+| Quarter calendar (Q3 2026) | `bin` | `look` / `examine Q3` → **Q3** bucket = titles |
+| Game / title card | `thing` | `examine --deep Title` → desc + **full lore** |
+| Real GDD / art / Jira | URLs in desc or lore | click out of CLI |
+| Optional thin dates | field rows on **desc** | not a second folio |
 
-### Studio field rows (label → value column)
+```text
+Roadmaps (place)
+  └─ Q3 2026 (bin)           ← calendar shelf per quarter
+       ├─ Title A (thing)
+       ├─ Title B (thing)
+       └─ Title C (thing)
+  └─ Q4 2026 (bin)
+```
 
-**Dialect (studio body):**
+**What goes where:**
+
+- **desc** (`@desc studio`): one-screen card — status, key dates (field rows), GDD link.  
+- **lore** (`lore on Title add…` + `examine --deep`): phase notes / filler chronology — *not* the GDD.  
+- **folio**: only if you want multi-leaf authoring later; **not** required for the board.  
+- Move a title to next quarter = `take` / `put` (MUD verbs, not Confluence tree).
+
+**Sketch:**
+
+```text
+dig place Roadmaps | Board for quarterly title calendars.
+dig bin Q3 2026 | Calendar shelf for Q3 titles.
+dig thing Starfall | Title card.
+@desc on starfall studio | …
+:Status: green
+:Soft launch: 2026-09-12
+:GDD: https://…
+lore on starfall add Kickoff | Math locked; art still open.
+put starfall in q3
+examine q3
+examine --deep starfall
+```
+
+### Studio field rows (on the card)
 
 ```text
 :Design start: 2024-01-03
@@ -79,29 +116,24 @@ Prefer **`folio` roadmap tickets** (or folio leaves inside a title pack) for the
 :Release:      2024-07-01
 ```
 
-Also bare single-token keys: `Art: 2024-03-15` (space after colon required).
+On **instance desc** (studio), not only inside folios.
 
-**Display:** contiguous field lines share one **dynamic key column** (pad to longest key in the block, clamp ~8–28) so values line up — fix for fixed-12 ugliness. Frontmatter `key: value` under `---` uses the same pad idea.
-
-**Input path:** folio leaf + studio format; type fields freely; reader/look renders the column. No special “form mode” required for v1.
-
-### Lore still (secondary)
+### Lore (primary depth for a title)
 
 | Need | Status |
 |------|--------|
-| Add lore (prose + flags `-a -t -b -w`) | **Yes** — including multiline for *new* notes |
-| Wiki Notes section | **Yes** — chronological; not author-ordered |
-| Edit existing lore | **No** |
-| Reorder lore | **No** — only promote if wiki notes become the schedule (unlikely if folios win) |
+| Add lore | **Yes** |
+| `examine --deep` / `look --deep` | **Yes** |
+| Edit / reorder lore | **No** — live without for board v1 |
 
-### Next tool gaps (when Focus promotes)
+### Next gaps (only if this shape hurts)
 
-1. Live with **folio + field rows** for one real title roadmap.  
-2. Optional: field table helpers, date validation — only if typing hurts.  
-3. Lore edit/reorder only if notes-on-ticket still needed beyond the folio body.  
+1. One real quarter + 2–3 titles before more engine.  
+2. Lore edit if filler needs correction often.  
+3. Optional subtypes `thing/title`, `bin/calendar` — not required.  
 4. Greg import / printer much later.
 
-**Do not:** Phase VENs for every micro-step; Confluence dump into wiki; calendar-as-truth only inside the MUD.
+**Do not:** Inline full GDD; phase VEN per micro-step; force every schedule into a folio; calendar-as-truth only inside the MUD.
 
 ---
 
@@ -118,11 +150,12 @@ Also bare single-token keys: `Art: 2024-03-15` (space after colon required).
 |------|------------------------|
 | **person** | Lived voice / body of needs; may hold sense, etc. |
 | **place** | **Space** — the street, the outside, the ground you stand on. Not “inside of a house.” |
-| **container** | Something **put on** a place (or carried) that you can **go into** / open / hold things. House on the street; box on the floor. May be marked **traversable into**. |
+| **bin** | Something **put on** a place (or carried) that **stores** (look placement bucket). House, shelf, Q3 calendar, pouch. Aliases: box, crate, container. Not “everything contains” — all VENs *can* hold; **bin** is the *store* root. |
 | **thing** | General “stuff”; expand via subtypes later (app, tool, material…). *Not* leaf-bearing by default. |
 | **folio** | **Root** — thing-you-put-leaves-in (da Vinci). Distinct conditional usage already (soft reader, leaves, + leaf, studio, measure 72). Subtypes: **book**, **file-folder**, **sketchbook**, … |
 | **symbol** | Abstract sense that acts by meaning (motif, law, sign…). Root of *concept* talk. |
 | **sense** | Felt / atmospheric / drive-like presence (feeling, longing, pressure…). |
+| **event** | Named occurrence / beat in the world (meeting, knock, launch). Free subtypes. Not history HST codes — those are craft trails. |
 
 ### Folio (locked — root, not a subtype of thing)
 
@@ -132,11 +165,11 @@ Also bare single-token keys: `Art: 2024-03-15` (space after colon required).
 - **Book** demotes from root → **subtype** (or casual prime name) under **folio**.  
 - Surface language can migrate book → folio over time; instance codes may keep **BOK-** prefix for a while (legacy kind code) or rebrand later.  
 - **STUDIO Writer** (was “BOK Studio”) = shared buffer brand for *all* `<<studio` work (desc, lore, folio leaves) — not folio-only.
-### Place vs container (locked intuition)
+### Place vs bin (locked intuition)
 
 - **My street** = **place** (space outside).  
-- **My house** = **container** someone put *on* that place; I can go *inside* it.  
-- A room is not a competing root: either a **place** facet or a **container** you enter — not both as peer “kinds of room” without a rule. Prefer: **place** = open space; **container** = enterable volume with inside.
+- **My house / shelf / Q3** = **bin** someone put *on* that place; it **stores** (may be enterable later).  
+- Prefer: **place** = open space; **bin** = volume that holds. Aliases: box, crate, container.
 
 ### Archetype (locked intuition)
 
@@ -172,7 +205,7 @@ Also bare single-token keys: `Art: 2024-03-15` (space after colon required).
 
 ### Shipped (strip pass)
 
-- `KINDS` = person place container thing folio symbol sense + realm timeline  
+- `KINDS` = person place bin thing folio symbol sense event + realm timeline  
 - Aliases at create: book→folio/book, object→thing, feeling→sense/feeling, archetype→person/archetype, …  
 - Codes: FOL, THG, SNS, CTR, SYM, … (legacy BOK/OBJ still parse where needed)  
 - Look Things = thing/folio/container; Force = person/archetype; sense/event → Happened Here  
@@ -217,7 +250,7 @@ Reminders of recent foundations so polish builds on solid ground:
 - `~/.aidm/ven-collector` · `vens export` / `ven load` (prime + instance packs)
 - Place templates: free-standing `spawn` of place primes; dig still unique primes
 - Portal `run` / `logout`; install-in-container; place subtypes; portal binding survives take/reinstall
-- Look buckets: Here / Things / Happened Here / Force / Also present
+- Look placement: **Here** (loose in room) + each **bin** name as bucket (shallow kids; empty shows); no kind taxonomy
 - Shared-width presence rows (no per-table headers)
 - Ways: command + grouped list; look only counts (inline restore parked above)
 - Seeds: story, classic, void, **bootstrap** (Nothing + Small note)

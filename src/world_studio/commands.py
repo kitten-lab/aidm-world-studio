@@ -85,7 +85,7 @@ def dispatch(world: World, line: str) -> CommandResult:
         if cmd in ("help", "?"):
             return CommandResult(True, _help(arg))
         if cmd in ("look", "l"):
-            return CommandResult(True, _look(world))
+            return CommandResult(True, _look(world, arg))
         if cmd == "locate":
             return CommandResult(True, _locate(world, arg))
         # Temporary aliases → locate self (retire later)
@@ -97,14 +97,18 @@ def dispatch(world: World, line: str) -> CommandResult:
             return CommandResult(True, _map(world, arg))
         if cmd in ("go", "g"):
             return _go(world, arg)
-        if cmd in ("run", "activate", "use"):
-            return _run(world, arg)
+        if cmd in ("run", "activate", "use", "enter"):
+            return _run(world, arg, verb=cmd)
+        if cmd == "unlock":
+            return _unlock(world, arg)
+        if cmd == "lock":
+            return _lock(world, arg)
         if cmd in ("logout", "logoff", "log-out"):
             return _logout(world, arg)
         if cmd == "portal":
             return CommandResult(True, _portal(world, arg))
         if cmd in ("inv", "inventory", "i"):
-            return CommandResult(True, _inv(world))
+            return CommandResult(True, _inv(world, arg))
         if cmd in ("take", "get"):
             return CommandResult(True, _take(world, arg))
         if cmd == "drop":
@@ -124,9 +128,12 @@ def dispatch(world: World, line: str) -> CommandResult:
         if cmd in ("folio", "book"):
             # folio is the product verb; book remains a full alias
             return _book_cmd(world, arg)
-        if cmd in ("read", "open"):
-            # read <folio> / open <folio> shorthand
+        if cmd == "read":
+            # read <folio> shorthand
             return _book_cmd(world, f"open {arg}" if arg else "open")
+        if cmd == "open":
+            # open door/room portal · or open folio (smart)
+            return _open_smart(world, arg)
         if cmd == "dig":
             return CommandResult(True, _dig(world, arg))
         if cmd == "link":
@@ -195,103 +202,313 @@ def _look_ven_label(inst: InstanceView) -> str | None:
     return ven
 
 
-def _presence_row(inst: InstanceView) -> tuple[str, str, str, str, str]:
-    """
-    Plain columns for look lists:
-      name · kind · subtype · prime · color_kind
+def _presence_code(world: World | None, inst: InstanceView) -> str:
+    """Instance short ref (THG-001-0001) for call/disambiguate; falls back to ven code."""
+    if world is not None:
+        try:
+            return world.short_ref_of(inst.id)
+        except Exception:  # noqa: BLE001
+            pass
+    return (inst.ven_code or "—").strip() or "—"
 
-    Kind and subtype are separate (never jammed as feeling/longing in one cell).
-    Empty subtype is ``—`` so the grid stays aligned for all kinds.
+
+def _presence_row(
+    inst: InstanceView, *, world: World | None = None
+) -> tuple[str, str, str, str]:
+    """
+    Plain columns for look / examine lists::
+
+      prime · name · code · color_kind
+
+    Prime = origin VEN name; name = lived title; code = instance short ref
+    (includes VEN code + instance digits) so take/examine can target uniquely.
+    No kind/subtype columns — less noise; call by code when names get iffy.
     """
     name = display_name(inst.name or "")
     kind = (inst.ven_kind or "other").strip() or "other"
-    sub = (inst.ven_subtype or "").strip() or "—"
-    prime = _look_ven_label(inst) or "—"
-    return name, kind, sub, prime, kind
+    prime = display_name(inst.ven_name or "") or "—"
+    code = _presence_code(world, inst)
+    return prime, name, code, kind
 
 
 def _presence_column_widths(
     sections: list[tuple[str, list[InstanceView]]],
-) -> tuple[int, int, int, int]:
-    """Widest NAME / KIND / SUBTYPE / PRIME across every non-empty look section."""
-    names: list[str] = []
-    kinds: list[str] = []
-    subs: list[str] = []
+    *,
+    world: World | None = None,
+    deep: bool = False,
+) -> tuple[int, int, int]:
+    """Widest PRIME / NAME / CODE across every non-empty section."""
     primes: list[str] = []
+    names: list[str] = []
+    codes: list[str] = []
+
+    def _collect(inst: InstanceView) -> None:
+        p, n, c, _ = _presence_row(inst, world=world)
+        primes.append(p)
+        names.append(n)
+        codes.append(c)
+
     for _, items in sections:
         for inst in items:
-            n, k, s, p, _ = _presence_row(inst)
-            names.append(n)
-            kinds.append(k)
-            subs.append(s)
-            primes.append(p)
+            _collect(inst)
+            if deep and world is not None and _is_placement_bin(inst):
+                for ch in world.contents(inst.id):
+                    _collect(ch)
     if not names:
-        return 4, 4, 1, 1
+        return 4, 4, 8
     return (
-        max(len(s) for s in names),
-        max(len(s) for s in kinds),
-        max(len(s) for s in subs),
-        max(len(s) for s in primes),
+        max(len(x) for x in primes),
+        max(len(x) for x in names),
+        max(len(x) for x in codes),
     )
 
 
+def _is_placement_bin(inst: InstanceView) -> bool:
+    """Root kind ``bin`` (legacy ``container``) forms a named placement bucket."""
+    from .world import BIN_KINDS
+
+    return (inst.ven_kind or "").strip().lower() in BIN_KINDS
+
+
+def _placement_sections(
+    world: World,
+    parent_id: str,
+    *,
+    exclude_ids: set[str] | None = None,
+    kids: list[InstanceView] | None = None,
+    loose_label: str = "Here",
+) -> list[tuple[str, list[InstanceView], bool]]:
+    """
+    Placement buckets for look / examine / inv (not kind taxonomy).
+
+    - Non-bins among *parent*'s direct children → section *loose_label* (default **Here**)
+    - Each **bin** among direct children → section named after that instance,
+      listing **its** direct children only (shallow). Empty bins still
+      appear (``show_if_empty`` True) so furniture is visible when bare.
+
+    *kids*: optional pre-filtered child list (e.g. inventory slot only).
+    Nested bins are *rows* under a parent bucket on look; when you
+    ``examine`` the parent, those nested bins become their own opened
+    buckets (same function, parent_id = table).
+    """
+    skip = exclude_ids or set()
+    if kids is None:
+        child_list = [c for c in world.contents(parent_id) if c.id not in skip]
+    else:
+        child_list = [c for c in kids if c.id not in skip]
+    loose: list[InstanceView] = []
+    bins: list[InstanceView] = []
+    for c in child_list:
+        if _is_placement_bin(c):
+            bins.append(c)
+        else:
+            loose.append(c)
+    out: list[tuple[str, list[InstanceView], bool]] = []
+    if loose:
+        out.append((fmt.section(loose_label), loose, False))
+    for b in bins:
+        header = _bin_bucket_header(b, world=world)
+        inner = list(world.contents(b.id))
+        out.append((header, inner, True))
+    return out
+
+
+def _bin_bucket_header(
+    inst: InstanceView,
+    *,
+    indent: int = 0,
+    nested: bool = False,
+    world: World | None = None,
+) -> str:
+    """
+    Bin section title: lived name + light prime + short ref code.
+
+    *nested*: inner bin under a parent bucket (``--deep``) — tree mark + indent
+    so it reads as a bin, not a list row.
+    """
+    name = display_name(inst.name or "Bin")
+    ven = display_name(inst.ven_name or "")
+    code = _presence_code(world, inst)
+    bits: list[str] = []
+    if ven:
+        bits.append(ven)
+    if code and code != "—":
+        bits.append(code)
+    lead = " " * max(0, indent)
+    if nested:
+        lead += "[dim]└─[/dim] "
+    if not bits:
+        return f"{lead}[bold]{fmt.safe(name)}[/bold]"
+    trail = " · ".join(bits)
+    return (
+        f"{lead}[bold]{fmt.safe(name)}[/bold]"
+        f"  [dim]· {fmt.safe(trail)}[/dim]"
+    )
+
+
+def _format_presence_line(
+    inst: InstanceView,
+    *,
+    w_prime: int,
+    w_name: int,
+    w_code: int,
+    world: World | None = None,
+    indent: int = 2,
+) -> str:
+    """One presence row: prime · name · code (+ optional non-interior slot)."""
+    gap = "  "
+    prime, name, code, color_kind = _presence_row(inst, world=world)
+    line = (
+        f"{' ' * indent}"
+        f"[dim]{fmt.safe(fmt.pad_visible(prime, w_prime))}[/dim]{gap}"
+        f"{fmt.colored_padded_name(name, color_kind, w_name)}{gap}"
+        f"[dim]{fmt.safe(fmt.pad_visible(code, w_code))}[/dim]"
+    )
+    if world is not None:
+        # Slot only when non-default (feeling, worn, …). interior + inventory
+        # are the usual "in this list" slots — no trailer. No "run" badge.
+        slot_row = world.container_of(inst.id)
+        slot = (slot_row[1] if slot_row else "") or ""
+        if slot and slot not in ("interior", "inventory"):
+            line += f"{gap}[dim]{fmt.safe(slot)}[/dim]"
+    return line
+
+
 def _format_presence_section(
-    section_title: str,
+    section_header: str,
     items: list[InstanceView],
     *,
-    w_name: int,
-    w_kind: int,
-    w_sub: int,
     w_prime: int,
+    w_name: int,
+    w_code: int,
+    show_if_empty: bool = False,
+    world: World | None = None,
+    deep: bool = False,
 ) -> str | None:
     """
-    One look presence block — no column headers / rules; shared widths with siblings:
+    One placement block — shared column grid::
 
-      Things
-        A Book That Loves You Backwards  book      —        —
-        Ritual Notes                     book      —        Field Notes
+      Here
+        Soft Ache      Soft Ache      SNS-001-0001
 
-      Also present
-        Quiet Invitation                 feeling   —        —
-        Soft Ache                        feeling   longing  —
+      Table  · Table · BIN-001-0001
+        Here
+          Coffee Cup     Coffee     THG-001-0002   ← root / not-in-bin first
+                                                ← blank line
+        └─ Drawer  · Drawer · BIN-002-0001
+            Spoon      Spoon      THG-003-0001
 
-      Force
-        The Hymn                         archetype —        —
+    Columns: prime · name · code (instance short ref).
+    Loose items always list before nested bins (blank line between).
+    *deep*: each listed **bin** becomes a nested bin header with its
+    contents underneath (one layer only).
     """
     if not items:
-        return None
-    gap = "  "
-    lines = [fmt.section(section_title)]
-    for inst in items:
-        name, kind, sub, prime, color_kind = _presence_row(inst)
-        lines.append(
-            f"  {fmt.colored_padded_name(name, color_kind, w_name)}{gap}"
-            f"[dim]{fmt.safe(fmt.pad_visible(kind, w_kind))}[/dim]{gap}"
-            f"[dim]{fmt.safe(fmt.pad_visible(sub, w_sub))}[/dim]{gap}"
-            f"[dim]{fmt.safe(fmt.pad_visible(prime, w_prime))}[/dim]"
+        if not show_if_empty:
+            return None
+        return f"{section_header}\n  [dim](empty)[/dim]"
+
+    loose = [i for i in items if not _is_placement_bin(i)]
+    nested_bins = [i for i in items if _is_placement_bin(i)]
+
+    lines = [section_header]
+
+    def _row(inst: InstanceView, indent: int = 2) -> str:
+        return _format_presence_line(
+            inst,
+            w_prime=w_prime,
+            w_name=w_name,
+            w_code=w_code,
+            world=world,
+            indent=indent,
         )
+
+    # Root / not-in-a-bin first
+    if loose:
+        if nested_bins:
+            lines.append("  [dim]Here[/dim]")
+        for inst in loose:
+            lines.append(_row(inst, 2 if not nested_bins else 4))
+
+    if loose and nested_bins:
+        lines.append("")  # blank line between root and bins
+
+    for inst in nested_bins:
+        if deep and world is not None:
+            lines.append(
+                _bin_bucket_header(inst, indent=2, nested=True, world=world)
+            )
+            kids = list(world.contents(inst.id))
+            if not kids:
+                lines.append("      [dim](empty)[/dim]")
+            else:
+                for ch in kids:
+                    lines.append(_row(ch, 6))
+        else:
+            lines.append(_row(inst, 2))
+
     return "\n".join(lines)
 
 
 def _format_look_presence_blocks(
-    sections: list[tuple[str, list[InstanceView]]],
+    sections: list[tuple[str, list[InstanceView]]]
+    | list[tuple[str, list[InstanceView], bool]],
+    *,
+    world: World | None = None,
+    deep: bool = False,
 ) -> list[str | None]:
-    """Format all look presence sections with one shared column grid."""
-    active = [(title, list(items)) for title, items in sections if items]
+    """Format placement sections with one shared column grid."""
+    normalized: list[tuple[str, list[InstanceView], bool]] = []
+    for entry in sections:
+        if len(entry) == 3:
+            title, items, show_empty = entry  # type: ignore[misc]
+        else:
+            title, items = entry  # type: ignore[misc]
+            show_empty = False
+        normalized.append((title, list(items), bool(show_empty)))
+    active = [
+        (t, items, se)
+        for t, items, se in normalized
+        if items or se
+    ]
     if not active:
         return []
-    w_name, w_kind, w_sub, w_prime = _presence_column_widths(active)
+    width_src = [(t, items) for t, items, _ in active if items]
+    if width_src:
+        w_prime, w_name, w_code = _presence_column_widths(
+            width_src, world=world, deep=deep
+        )
+    else:
+        w_prime, w_name, w_code = 4, 4, 8
     return [
         _format_presence_section(
             title,
             items,
-            w_name=w_name,
-            w_kind=w_kind,
-            w_sub=w_sub,
             w_prime=w_prime,
+            w_name=w_name,
+            w_code=w_code,
+            show_if_empty=show_empty,
+            world=world,
+            deep=deep,
         )
-        for title, items in active
+        for title, items, show_empty in active
     ]
+
+
+def _placement_has_runnable(
+    world: World, sections: list, *, deep: bool = False
+) -> bool:
+    """True if any listed instance (or deep child) is portal-ready."""
+    for entry in sections:
+        items = entry[1] if len(entry) > 1 else []
+        for inst in items or []:
+            if world.get_portal_to(inst.id):
+                return True
+            if deep and _is_placement_bin(inst):
+                for ch in world.contents(inst.id):
+                    if world.get_portal_to(ch.id):
+                        return True
+    return False
 
 
 def _layer_name_markup(name: str | None, kind: str) -> str:
@@ -304,7 +521,7 @@ def _layer_name_markup(name: str | None, kind: str) -> str:
 
 def _kind_subtype_trailer(inst: InstanceView) -> str:
     """
-    Kind chip for look/examine headers.
+    Kind chip for examine headers (and non-look contexts).
 
     When a subtype exists: ``place: app`` (colon, readable).
     Otherwise bare kind: ``place``.
@@ -331,18 +548,29 @@ def _instance_context_details(world: World, inst: InstanceView) -> str:
 
 def _location_header_line(world: World, inst: InstanceView) -> str:
     """
-    Single look lead-in::
+    Look lead-in — omit root kind ``place``; subtype only when set::
 
-        Location: Place Name · place: app  |  Realm  |  Timeline
-        Location: Place Name · place  |  Realm  |  Timeline
+        Location: Mailroom · app  |  Realm  |  Timeline
+        Location: The Void · Realm  |  Timeline
     """
     name = fmt.title_line(inst.name, kind="place")
-    details = _instance_context_details(world, inst)
+    coords = world.coords_of(inst)
+    r = _layer_name_markup(coords.get("realm_name"), "realm")
+    t = _layer_name_markup(coords.get("timeline_name"), "timeline")
+    sub = (inst.ven_subtype or "").strip()
+    if sub:
+        details = (
+            f"{fmt.kind_label(sub)}"
+            f"  [dim]|[/dim]  {r}"
+            f"  [dim]|[/dim]  {t}"
+        )
+    else:
+        details = f"{r}  [dim]|[/dim]  {t}"
     return f"[bold]Location:[/bold] {name}  [dim]·[/dim]  {details}"
 
 
 def _instance_context_line(world: World, inst: InstanceView) -> str:
-    """Under-title strip (legacy helper): kind[/subtype] | realm | timeline."""
+    """Under-title strip (examine etc.): kind[/subtype] | realm | timeline."""
     return _instance_context_details(world, inst)
 
 
@@ -356,7 +584,31 @@ def _session_hint_line(world: World) -> str | None:
     return fmt.hint(f"session · {app_n}  ·  logout → {ret_n}")
 
 
-def _look(world: World) -> str:
+def _peel_look_at(arg: str) -> str:
+    """Optional English glue: ``at <name>`` → ``<name>``."""
+    raw = (arg or "").strip()
+    low = raw.lower()
+    if low.startswith("at "):
+        return raw[3:].strip()
+    if low == "at":
+        return ""
+    return raw
+
+
+def _look(world: World, arg: str = "") -> str:
+    """
+    look                 — room view (lore count hint if any)
+    look deep / --deep   — room view + bin contents one layer deeper + full place lore
+    look [--deep] at X   — same as examine X [--deep]
+    look X deep          — examine X with full lore + deeper bins
+    """
+    from .wiki import parse_deep_flag
+
+    target, deep = parse_deep_flag(arg)
+    target = _peel_look_at(target)
+    if target:
+        return _examine(world, target, deep=deep)
+
     loc = world.player_location()
     if not loc:
         return fmt.hint("You are nowhere. (No player location.)")
@@ -374,20 +626,25 @@ def _look(world: World) -> str:
     else:
         exit_block = fmt.hint("No paths from here.")
 
+    # Placement: Here = loose in room; each bin VEN is its own bucket
+    # (shallow kids). --deep expands each listed bin one more layer.
+    pid = world.player_id()
+    exclude = {pid} if pid else set()
+    placement = _placement_sections(world, loc.id, exclude_ids=exclude)
     presence_blocks = _format_look_presence_blocks(
-        [
-            ("Here", list(info["people"] or [])),
-            ("Things", list(info["objects"] or [])),
-            ("Happened Here", list(info.get("events") or [])),
-            ("Force", list(info.get("forces") or [])),
-            ("Also present", list(info["other"] or [])),
-        ]
+        placement, world=world, deep=deep
     )
 
-    lore_hint = None
-    if info["lore"]:
-        n = len(info["lore"])
-        lore_hint = fmt.hint(f"{n} lore revision(s) — type lore")
+    lore_block = None
+    lore_rows = list(info["lore"] or [])
+    if deep:
+        if lore_rows:
+            lore_block = _format_lore_rows(f"Lore · {loc.name}", lore_rows)
+        else:
+            lore_block = fmt.hint("No lore revisions for this place.")
+    elif lore_rows:
+        n = len(lore_rows)
+        lore_block = fmt.hint(f"{n} lore revision(s) — type lore  ·  look --deep")
 
     head = fmt.join_blocks(header, session_line, gap=0)
     return fmt.join_blocks(
@@ -395,7 +652,7 @@ def _look(world: World) -> str:
         body,
         exit_block,
         *presence_blocks,
-        lore_hint,
+        lore_block,
         gap=1,
     )
 
@@ -609,12 +866,343 @@ def _portal(world: World, arg: str) -> str:
     return fmt.join_blocks(
         fmt.ok(f"Portal · {display_name(app.name)} → {display_name(dest.name)}"),
         fmt.hint(
-            f"Binding lives on the app (survives take/drop).  "
-            f"Install: put/install {app.name} in <device>  ·  "
-            f"Travel: run {app.name}  ·  Clear: portal clear {app.name}"
+            f"Binding lives on the token (survives take/drop).  "
+            f"Apps: put/install {app.name} in <device> · run {app.name}  ·  "
+            f"Doors: lock {app.name} with <key> · unlock · open / enter  ·  "
+            f"Clear: portal clear {app.name}"
         ),
         gap=0,
     )
+
+
+def _split_with_key(arg: str) -> tuple[str, str | None]:
+    """Split ``door with key`` → (door, key). Bare door → (door, None)."""
+    raw = (arg or "").strip()
+    if not raw:
+        return "", None
+    low = raw.lower()
+    if " with " in low:
+        idx = low.rfind(" with ")
+        left = raw[:idx].strip()
+        right = raw[idx + 6 :].strip() or None
+        return left, right
+    return raw, None
+
+
+def _resolve_portal_token(
+    world: World, name: str
+) -> tuple[InstanceView | None, str | None]:
+    """Resolve a portal door/app token here (must already have a portal bind)."""
+    q = (name or "").strip()
+    if not q:
+        return None, fmt.hint("Name a portal token (door, app, …).")
+    hits = [
+        c
+        for c in world.resolve_here_candidates()
+        if _names_match_thing(q, c) and world.get_portal_to(c.id)
+    ]
+    if not hits:
+        # allow pre-bind resolve for lock authoring on any here thing
+        hits = [
+            c
+            for c in world.resolve_here_candidates()
+            if _names_match_thing(q, c)
+        ]
+        if not hits:
+            return None, fmt.err(f"No {q!r} here.")
+        if len(hits) > 1:
+            return None, _format_ambiguous(world, q, hits)
+        return hits[0], None
+    if len(hits) > 1:
+        return None, _format_ambiguous(world, q, hits)
+    return hits[0], None
+
+
+def _find_keys_for_portal(
+    world: World, portal: InstanceView, key_q: str | None
+) -> list[InstanceView]:
+    """Keys in reach that fit this portal (instance bind preferred)."""
+    need_inst = world.get_portal_key_instance_id(portal.id)
+    need_ven = world.get_portal_key_ven_id(portal.id)
+    cands = world.resolve_here_candidates()
+    if key_q:
+        cands = [c for c in cands if _names_match_thing(key_q, c)]
+    out: list[InstanceView] = []
+    for c in cands:
+        if c.id == portal.id:
+            continue
+        if need_inst:
+            if c.id == need_inst:
+                out.append(c)
+        elif need_ven:
+            if c.ven_id == need_ven:
+                out.append(c)
+        elif key_q:
+            # named key but portal has no bind yet
+            out.append(c)
+    return out
+
+
+# lock -d / --desc "flavor when open fails while locked"
+_LOCK_FLAG_ALIASES: dict[str, str] = {
+    "desc": "desc",
+    "description": "desc",
+    "d": "desc",
+    "deny": "desc",
+    "message": "desc",
+    "msg": "desc",
+}
+
+
+def _portal_locked_refusal(
+    world: World, app: InstanceView, *, verb: str = "open"
+) -> CommandResult:
+    """
+    Refuse open/run/enter while locked — narrative, not a red command error.
+
+    Author -d flavor (if any) as prose; unlock hint as dim tip.
+    """
+    v = (verb or "open").strip() or "open"
+    if world.portal_requires_key(app.id):
+        klabel = world.portal_key_label(app.id)
+        tip = (
+            f"{display_name(app.name)} is locked.  "
+            f"unlock {app.name} with {klabel}  ·  then {v} {app.name}"
+        )
+    else:
+        tip = (
+            f"{display_name(app.name)} is locked.  "
+            f"unlock {app.name}  ·  then {v} {app.name}"
+        )
+    deny = world.get_portal_lock_deny(app.id)
+    if deny:
+        # Story first, soft how-to second (no red — this is fiction, not "no folio")
+        return CommandResult(
+            False,
+            fmt.join_blocks(fmt.prose_block(deny), fmt.hint(tip), gap=1),
+        )
+    return CommandResult(False, fmt.join_blocks(fmt.prose_block(tip), gap=0))
+
+
+def _lock(world: World, arg: str) -> CommandResult:
+    """
+    lock <door> [with <key>] [-d "refuse line"]
+
+    Mark a portal token locked. Optional key VEN bind (any instance of that
+    prime unlocks). ``-d`` / ``--desc`` sets the line printed when open/run
+    hits the lock without unlocking first. Does not travel.
+    """
+    from .argflags import parse_named_flags
+
+    raw = (arg or "").strip()
+    deny_text: str | None = None
+    if raw:
+        parsed = parse_named_flags(raw, aliases=_LOCK_FLAG_ALIASES)
+        if parsed.error:
+            return CommandResult(False, fmt.err(parsed.error))
+        if "desc" in parsed.flags:
+            deny_text = parsed.get("desc") or ""
+        rest = " ".join(parsed.positionals).strip()
+    else:
+        rest = ""
+
+    door_q, key_q = _split_with_key(rest)
+    if not door_q:
+        return CommandResult(
+            True,
+            fmt.hint(
+                "Usage: lock <door>  ·  lock <door> with <key>\n"
+                '  lock <door> with <key> -d "The latch laughs at bare hands."\n'
+                "  Then: unlock <door> [with <key>]  ·  open <door>"
+            ),
+        )
+    door, err = _resolve_portal_token(world, door_q)
+    if err or door is None:
+        return CommandResult(False if err and "No " in (err or "") else True, err or "")
+    if not world.get_portal_to(door.id):
+        return CommandResult(
+            False,
+            fmt.err(
+                f"{display_name(door.name)} has no portal.  "
+                f"portal {door.name} -> <place> first."
+            ),
+        )
+
+    prior_locked = world.is_portal_locked(door.id)
+    prior_key_inst = world.get_portal_key_instance_id(door.id)
+    prior_key_ven = world.get_portal_key_ven_id(door.id)
+    prior_deny = world.get_portal_lock_deny(door.id)
+    key_used: InstanceView | None = None
+
+    if key_q:
+        keys = [
+            c
+            for c in world.resolve_here_candidates()
+            if _names_match_thing(key_q, c) and c.id != door.id
+        ]
+        if not keys:
+            return CommandResult(
+                False, fmt.err(f"No key {key_q!r} here to bind.")
+            )
+        if len(keys) > 1:
+            return CommandResult(False, _format_ambiguous(world, key_q, keys))
+        key_used = keys[0]
+        # Bind this *copy* (named spawn), not the Key prime
+        world.set_portal_key_instance_id(door.id, key_used.id)
+
+    world.set_portal_locked(door.id, True)
+    if deny_text is not None:
+        # Explicit -d (including empty string to clear)
+        world.set_portal_lock_deny(door.id, deny_text or None)
+    iid = door.id
+
+    def undo_lock(
+        w: World,
+        instance_id: str = iid,
+        was_locked: bool = prior_locked,
+        old_key_inst: str | None = prior_key_inst,
+        old_key_ven: str | None = prior_key_ven,
+        old_deny: str | None = prior_deny,
+    ) -> None:
+        w.set_portal_locked(instance_id, was_locked)
+        w.set_portal_key_instance_id(instance_id, old_key_inst)
+        if old_key_inst is None:
+            w.set_portal_key_ven_id(instance_id, old_key_ven)
+        w.set_portal_lock_deny(instance_id, old_deny)
+
+    world.undo_stack.push(f"lock {door.name}", undo_lock)
+    kname = display_name(key_used.name) if key_used else None
+    bits = [f"Locked · {display_name(door.name)}"]
+    if kname:
+        bits.append(f"only {kname}")
+    if deny_text is not None and deny_text.strip():
+        bits.append("deny line set")
+    elif deny_text is not None:
+        bits.append("deny line cleared")
+    main = fmt.ok("  ·  ".join(bits))
+    if kname:
+        tip = fmt.hint(
+            f"unlock {door.name} with {key_used.name if key_used else 'key'}  ·  "
+            f"then open {door.name}  ·  (this key copy only)"
+        )
+    else:
+        tip = fmt.hint(
+            f"unlock {door.name}  ·  open {door.name}  ·  "
+            f"lock {door.name} with <key> to require a specific key"
+        )
+    if deny_text is not None and deny_text.strip():
+        tip = fmt.join_blocks(
+            tip,
+            fmt.hint("open without the key prints your -d line first"),
+            gap=0,
+        )
+    return CommandResult(True, fmt.join_blocks(main, tip, gap=0))
+
+
+def _unlock(world: World, arg: str) -> CommandResult:
+    """
+    unlock <door> [with <key>]
+
+    Clear portal lock only (does not enter). If a key VEN is bound, a matching
+    key must be in reach (or named with). Keyless locks unlock bare.
+    """
+    door_q, key_q = _split_with_key(arg)
+    if not door_q:
+        return CommandResult(
+            True,
+            fmt.hint(
+                "Usage: unlock <door>  ·  unlock <door> with <key>\n"
+                "  Then open / enter / run to go through.  "
+                "lock <door> with <key> to set up."
+            ),
+        )
+    door, err = _resolve_portal_token(world, door_q)
+    if err or door is None:
+        return CommandResult(False if err and "No " in (err or "") else True, err or "")
+    if not world.get_portal_to(door.id):
+        return CommandResult(
+            False,
+            fmt.err(
+                f"{display_name(door.name)} has no portal.  "
+                f"portal {door.name} -> <place> first."
+            ),
+        )
+
+    if not world.is_portal_locked(door.id):
+        return CommandResult(
+            True,
+            fmt.join_blocks(
+                fmt.ok(f"Already unlocked · {display_name(door.name)}"),
+                fmt.hint(f"open / enter {door.name}  ·  lock {door.name} to re-lock"),
+                gap=0,
+            ),
+        )
+
+    need = world.portal_requires_key(door.id)
+    key_used: InstanceView | None = None
+    if need:
+        keys = _find_keys_for_portal(world, door, key_q)
+        if not keys:
+            if key_q:
+                return CommandResult(
+                    False,
+                    fmt.err(
+                        f"{key_q!r} is not the key for "
+                        f"{display_name(door.name)}."
+                    ),
+                )
+            klabel = world.portal_key_label(door.id)
+            return CommandResult(
+                False,
+                fmt.err(
+                    f"{display_name(door.name)} is locked.  "
+                    f"Need {klabel} in reach.  "
+                    f"unlock {door.name} with <key>"
+                ),
+            )
+        if len(keys) > 1 and key_q is None:
+            lines = [
+                fmt.err(
+                    f"Several keys fit {display_name(door.name)}.  Be specific:"
+                )
+            ]
+            for k in keys:
+                lines.append(fmt.hint(f"  unlock {door.name} with {k.name}"))
+            return CommandResult(False, "\n".join(lines))
+        if len(keys) > 1 and key_q:
+            return CommandResult(False, _format_ambiguous(world, key_q, keys))
+        key_used = keys[0]
+        if not world.portal_key_matches(door.id, key_used):
+            return CommandResult(
+                False,
+                fmt.err(
+                    f"{display_name(key_used.name)} does not fit "
+                    f"{display_name(door.name)}."
+                ),
+            )
+    elif key_q:
+        # keyless lock but user named a key — ignore, still unlock
+        pass
+
+    prior_locked = True
+    world.set_portal_locked(door.id, False)
+    iid = door.id
+
+    def undo_unlock(
+        w: World, instance_id: str = iid, was_locked: bool = prior_locked
+    ) -> None:
+        w.set_portal_locked(instance_id, was_locked)
+
+    world.undo_stack.push(f"unlock {door.name}", undo_unlock)
+    if key_used:
+        main = fmt.ok(
+            f"Unlocked · {display_name(door.name)}  ·  with "
+            f"{display_name(key_used.name)}"
+        )
+    else:
+        main = fmt.ok(f"Unlocked · {display_name(door.name)}")
+    tip = fmt.hint(f"open / enter {door.name}  ·  logout later to return")
+    return CommandResult(True, fmt.join_blocks(main, tip, gap=0))
 
 
 def _portal_binding_hint(world: World, thing: InstanceView) -> str | None:
@@ -624,27 +1212,91 @@ def _portal_binding_hint(world: World, thing: InstanceView) -> str | None:
         return None
     dest = world.get_instance(dest_id)
     dname = display_name(dest.name) if dest else "bound place"
+    if world.is_portal_locked(thing.id):
+        how = "locked · unlock first"
+    elif world.install_container_of(thing.id):
+        how = "install to run"
+    else:
+        how = "open / enter (floor portal)"
     return fmt.hint(
-        f"portal still → {dname}  ·  install to run  ·  portal clear to unbind"
+        f"portal still → {dname}  ·  {how}  ·  portal clear to unbind"
     )
 
 
-def _run(world: World, arg: str) -> CommandResult:
+def _portal_floor_ready(
+    world: World, thing: InstanceView
+) -> InstanceView | None:
     """
-    run <app> [from <device>]
+    Holder for a portal token that sits loose on the current place floor.
 
-    Soft: if exactly one installed match, run it.
-    Must be nested in a non-place, non-player container (installed).
-    Destination is a real place via portal bind — never a paths entry.
+    Doors / room tokens do not need a device install — only apps-in-terminals do.
+    Returns the current place as synthetic holder, or None if not floor-ready.
+    """
+    if not world.get_portal_to(thing.id):
+        return None
+    if world.install_container_of(thing.id) is not None:
+        return None
+    loc = world.player_location()
+    if not loc:
+        return None
+    cont = world.container_of(thing.id)
+    if cont and cont[0] == loc.id:
+        return loc
+    return None
+
+
+def _open_smart(world: World, arg: str) -> CommandResult:
+    """
+    open <name> — portal door/token if bound, else folio reader.
+
+    unlock / enter / run stay portal-only; open shares the English verb with books.
     """
     raw = (arg or "").strip()
     if not raw:
         return CommandResult(
             True,
             fmt.hint(
-                "Usage: run <app>  ·  run <app> from <device>\n"
-                "  App must be installed (inside a container).  "
-                "Bind a world: portal <app> -> <place>"
+                "Usage: open <door|folio>  ·  unlock <door> [with <key>]\n"
+                "  Portals: open / enter / run  ·  Books: open / read / folio open"
+            ),
+        )
+    # Prefer portal travel when the name matches a bound portal here
+    portal_hits = [
+        c
+        for c in world.resolve_here_candidates()
+        if _names_match_thing(raw, c) and world.get_portal_to(c.id)
+    ]
+    if len(portal_hits) == 1:
+        return _run(world, raw, verb="open")
+    if len(portal_hits) > 1:
+        return CommandResult(
+            False, _format_ambiguous(world, raw, portal_hits)
+        )
+    # Folio path (existing open shorthand)
+    return _book_cmd(world, f"open {raw}")
+
+
+def _run(world: World, arg: str, *, verb: str = "run") -> CommandResult:
+    """
+    run|open|enter|activate|use <portal> [from <device>]
+
+    Soft: if exactly one installed match, enter it.
+    Apps usually need install (inside a non-place container).
+    Floor portal tokens (doors, room shells) enter without install.
+    Locked portals require unlock first (keys optional).
+    Destination is a real place via portal bind — never a paths entry.
+    """
+    v = (verb or "run").lower().strip() or "run"
+    raw = (arg or "").strip()
+    if not raw:
+        return CommandResult(
+            True,
+            fmt.hint(
+                f"Usage: {v} <portal>  ·  run <app> from <device>\n"
+                "  Apps: install in a device, then run.  "
+                "Doors on the floor: open / enter.  "
+                "Locked: unlock <door> [with <key>] first.  "
+                "Bind: portal <thing> -> <place>"
             ),
         )
     app_q = raw
@@ -705,20 +1357,47 @@ def _run(world: World, arg: str) -> CommandResult:
             else:
                 loose_or_floor.append(c)
 
+        # Floor portal tokens (doors / room shells): no device install needed
+        if not installed:
+            floor_ready: list[tuple[InstanceView, InstanceView]] = []
+            for c in loose_or_floor:
+                place_holder = _portal_floor_ready(world, c)
+                if place_holder is not None:
+                    floor_ready.append((c, place_holder))
+            if len(floor_ready) == 1:
+                installed = floor_ready
+            elif len(floor_ready) > 1:
+                lines = [
+                    fmt.err(f"Ambiguous portal {app_q!r}.  Be specific:"),
+                ]
+                for app, _h in floor_ready:
+                    lines.append(fmt.hint(f"  unlock {app.name}"))
+                return CommandResult(False, "\n".join(lines))
+
         if not installed:
             if loose_or_floor or candidates:
+                has_portal = any(world.get_portal_to(c.id) for c in loose_or_floor)
+                if has_portal:
+                    return CommandResult(
+                        False,
+                        fmt.err(
+                            f"{app_q!r} has a portal but is not on the floor here "
+                            f"and not installed.  drop it here, or put it in a device."
+                        ),
+                    )
                 return CommandResult(
                     False,
                     fmt.err(
                         f"{app_q!r} is not installed.  "
-                        f"put it in a device (terminal, bag, …), then run."
+                        f"put it in a device (terminal, bag, …), then run — "
+                        f"or bind a floor door: portal <door> -> <place>."
                     ),
                 )
             return CommandResult(
                 False,
                 fmt.err(
-                    f"No {app_q!r} here to run.  "
-                    f"examine a device  ·  put <app> in <device>"
+                    f"No {app_q!r} here to {v}.  "
+                    f"examine  ·  unlock <door>  ·  put <app> in <device>"
                 ),
             )
         if len(installed) > 1:
@@ -751,6 +1430,9 @@ def _run(world: World, arg: str) -> CommandResult:
             ),
         )
 
+    if world.is_portal_locked(app.id):
+        return _portal_locked_refusal(world, app, verb=v)
+
     # Remember where we stood (and which install) so logout is not a room exit
     origin = world.player_location()
     if not origin:
@@ -772,11 +1454,18 @@ def _run(world: World, arg: str) -> CommandResult:
     )
     world.move_player(dest.id)
     sub = format_kind_label("place", dest.ven_subtype) if dest.ven_subtype else "place"
-    travel = fmt.hint(
-        f"run {display_name(app.name)} from {display_name(holder.name)}  →  "
-        f"{display_name(dest.name)}  ({sub})"
-    )
-    leave = fmt.hint("logout  ·  return to where you ran from (not a room exit)")
+    floor_mode = holder.ven_kind == "place"
+    if floor_mode:
+        travel = fmt.hint(
+            f"{v} {display_name(app.name)}  →  "
+            f"{display_name(dest.name)}  ({sub})"
+        )
+    else:
+        travel = fmt.hint(
+            f"{v} {display_name(app.name)} from {display_name(holder.name)}  →  "
+            f"{display_name(dest.name)}  ({sub})"
+        )
+    leave = fmt.hint("logout  ·  return to where you entered from (not a room exit)")
     return CommandResult(
         True,
         fmt.join_blocks(travel, leave, _look(world), gap=1),
@@ -836,31 +1525,59 @@ def _logout(world: World, arg: str) -> CommandResult:
     )
 
 
-def _inv(world: World) -> str:
-    from .ids import display_name
+def _inv(world: World, arg: str = "") -> str:
+    """
+    Carried items in the same placement language as look.
 
+    - No bins: one **Inventory** grid (prime · name · code).
+    - Bins present: **Carrying** (loose) + each bin as a look-style bucket
+      with its contents listed underneath (empty bins still show).
+    - ``inv --deep`` / ``inv deep``: nested bins under carried bins open one
+      layer (same as look --deep).
+    """
+    from .wiki import parse_deep_flag
+
+    _rest, deep = parse_deep_flag(arg or "")
+    player = _player_instance(world)
+    if not player:
+        return fmt.hint("No player set.")
     items = world.inventory()
     if not items:
         return fmt.hint("You carry nothing.")
-    lines = [fmt.section("Inventory")]
-    for it in items:
-        inner = world.contents(it.id)
-        if inner:
-            names = ", ".join(display_name(c.name) for c in inner[:6])
-            extra = f"…" if len(inner) > 6 else ""
-            lines.append(
-                fmt.bullet(
-                    it.name,
-                    f"holds {len(inner)}: {names}{extra}",
-                    kind=it.ven_kind,
-                )
-            )
-        else:
-            lines.append(fmt.bullet(it.name, kind=it.ven_kind))
-    lines.append(
-        fmt.hint("Look inside: examine <box>  ·  Retrieve: take <thing> from <box>")
+
+    has_bin = any(_is_placement_bin(it) for it in items)
+    if has_bin:
+        sections = _placement_sections(
+            world,
+            player.id,
+            kids=items,
+            loose_label="Carrying",
+        )
+        blocks = _format_look_presence_blocks(
+            sections, world=world, deep=deep
+        )
+        tip = (
+            "examine <box>  ·  take <thing> from <box>  ·  put <thing> in <box>"
+        )
+        if not deep:
+            tip += "  ·  inv --deep"
+        return fmt.join_blocks(
+            fmt.section("Inventory"),
+            *blocks,
+            fmt.hint(tip),
+            gap=1,
+        )
+
+    # Flat carry — same columns as look, single section
+    blocks = _format_look_presence_blocks(
+        [(fmt.section("Inventory"), items, False)],
+        world=world,
+        deep=deep,
     )
-    return "\n".join(lines)
+    tip = "take / drop  ·  put in a bin to group"
+    if not deep and any(_is_placement_bin(it) for it in items):
+        tip += "  ·  inv --deep"
+    return fmt.join_blocks(*blocks, fmt.hint(tip), gap=1)
 
 
 def _record_move_history(
@@ -1035,8 +1752,17 @@ def _take(world: World, arg: str) -> str:
                 f"Try: take {thing.name} from {hname}"
             )
         return fmt.err(f"{thing.name} is not on the ground here.")
+    if not world.takeable(thing):
+        return fmt.err(
+            f"Cannot take a {thing.ven_kind} ({thing.name}).  "
+            f"Bins and things: dig bin <name> or create+spawn.  "
+            f"Places stay free-standing (go/link), not in inventory."
+        )
     prior = cont
-    world.take(thing.id)
+    try:
+        world.take(thing.id)
+    except ValueError as e:
+        return fmt.err(str(e))
     _push_put_undo(world, thing.id, prior, f"take {thing.name}")
     player = _player_instance(world)
     tname = display_name(thing.name)
@@ -1191,58 +1917,26 @@ def _push_book_page_delete_undo(
     world.undo_stack.push(summary, apply)
 
 
-def _format_contains_section(
-    items: list[InstanceView],
-    *,
-    world: World,
-) -> tuple[str | None, bool]:
+def _examine(world: World, arg: str, *, deep: bool | None = None) -> str:
     """
-    Contains block — same columns as look (name · kind · subtype · prime).
-
-    Default containment slot ``interior`` is omitted (noise). Non-default slots
-    (inventory, worn, sense, …) and portal-ready apps append a thin trailer.
-    Returns (markup, had_runnable_portal).
+    examine <thing>           — detail; lore count hint
+    examine --deep <thing>    — same + full lore bodies (+ deeper compose)
+    in deep at <thing>        — aliases: exam, inspect, in
     """
-    if not items:
-        return None, False
-    # name, kind, sub, prime, color_kind, trailer (slot/run or "")
-    rows: list[tuple[str, str, str, str, str, str]] = []
-    runnable = False
-    for c in items:
-        name, kind, sub, prime, color_kind = _presence_row(c)
-        bits: list[str] = []
-        slot_row = world.container_of(c.id)
-        slot = (slot_row[1] if slot_row else "") or ""
-        if slot and slot not in ("interior",):
-            bits.append(slot)
-        if world.get_portal_to(c.id):
-            bits.append("run")
-            runnable = True
-        trailer = " · ".join(bits)
-        rows.append((name, kind, sub, prime, color_kind, trailer))
-    w_name = max(len(r[0]) for r in rows)
-    w_kind = max(len(r[1]) for r in rows)
-    w_sub = max(len(r[2]) for r in rows)
-    w_prime = max(len(r[3]) for r in rows)
-    gap = "  "
-    lines = [fmt.section("Contains")]
-    for name, kind, sub, prime, color_kind, trailer in rows:
-        line = (
-            f"  {fmt.colored_padded_name(name, color_kind, w_name)}{gap}"
-            f"[dim]{fmt.safe(fmt.pad_visible(kind, w_kind))}[/dim]{gap}"
-            f"[dim]{fmt.safe(fmt.pad_visible(sub, w_sub))}[/dim]{gap}"
-            f"[dim]{fmt.safe(fmt.pad_visible(prime, w_prime))}[/dim]"
-        )
-        if trailer:
-            line += f"{gap}[dim]{fmt.safe(trailer)}[/dim]"
-        lines.append(line)
-    return "\n".join(lines), runnable
+    from .wiki import parse_deep_flag
 
+    if deep is None:
+        arg, deep = parse_deep_flag(arg)
+    else:
+        # Already peeled by look; still strip a redundant deep token if present
+        arg, deep2 = parse_deep_flag(arg)
+        deep = deep or deep2
+    arg = _peel_look_at(arg)
 
-def _examine(world: World, arg: str) -> str:
     if not arg:
         return fmt.hint(
-            "Examine what?  examine <thing>  ·  examine realm  ·  examine timeline"
+            "Examine what?  examine <thing>  ·  examine realm  ·  examine timeline\n"
+            "  Full lore:  examine --deep <thing>  ·  in deep at <thing>"
         )
     thing, err = _resolve_instance_target(world, arg)
     if err or thing is None:
@@ -1266,31 +1960,18 @@ def _examine(world: World, arg: str) -> str:
             f"[dim]  ·  folio open {fmt.safe(thing.name)}#{fmt.safe(ref)}[/dim]"
         )
 
-    contains = None
-    inner_life = None
+    # Placement: Here = loose inside this instance; each nested bin is
+    # an opened bucket (first-level kids). --deep expands those kids one more
+    # layer when they are bins. Empty nested bins still show.
+    placement = _placement_sections(world, thing.id)
+    placement_blocks = _format_look_presence_blocks(
+        placement, world=world, deep=deep
+    )
     run_hint_line = None
-    inner = world.contents(thing.id)
-    if inner:
-        feelings_arch = [
-            c
-            for c in inner
-            if is_inner_life_kind(c.ven_kind, c.ven_subtype)
-        ]
-        other = [c for c in inner if c not in feelings_arch]
-        if thing.ven_kind == "person" and feelings_arch:
-            blocks = _format_look_presence_blocks(
-                [("Inner life", feelings_arch)]
-            )
-            inner_life = blocks[0] if blocks else None
-        show_contains = other if (thing.ven_kind == "person" and feelings_arch) else inner
-        if show_contains:
-            contains, runnable_hint = _format_contains_section(
-                show_contains, world=world
-            )
-            if runnable_hint:
-                run_hint_line = fmt.hint(
-                    f"run <app> from {thing.name}  ·  portals stay off paths"
-                )
+    if _placement_has_runnable(world, placement, deep=deep):
+        run_hint_line = fmt.hint(
+            f"run <app> from {thing.name}  ·  portals stay off paths"
+        )
 
     portal_meta = None
     portal_dest_id = world.get_portal_to(thing.id)
@@ -1298,14 +1979,19 @@ def _examine(world: World, arg: str) -> str:
         pdest = world.get_instance(portal_dest_id)
         pname = pdest.name if pdest else "?"
         holder = world.install_container_of(thing.id)
-        if holder:
+        locked = world.is_portal_locked(thing.id)
+        lock_bit = "locked · " if locked else ""
+        if locked:
+            run_hint = f"unlock {thing.name} [with <key>] · then open"
+        elif holder:
             run_hint = f"run {thing.name} from {holder.name}"
+        elif _portal_floor_ready(world, thing):
+            run_hint = f"open / enter {thing.name}"
         else:
-            run_hint = "install in a container, then run"
-        portal_meta = fmt.hint(f"portal → {pname}  ·  {run_hint}")
-
+            run_hint = "drop here to open, or install in a device then run"
+        portal_meta = fmt.hint(f"portal → {pname}  ·  {lock_bit}{run_hint}")
     lineage_block = _format_lineage_section(world, thing.ven_id)
-    compose_block = _format_compose_section(world, thing.ven_id)
+    compose_block = _format_compose_section(world, thing.ven_id, deep=deep)
 
     dialog_meta = None
     if thing.ven_kind == "person":
@@ -1320,9 +2006,16 @@ def _examine(world: World, arg: str) -> str:
 
     lore_rows = list(world.lore_for("instance", thing.id))
     lore_rows += list(world.lore_for("ven", thing.ven_id))
-    lore_hint = None
-    if lore_rows:
-        lore_hint = fmt.hint(f"{len(lore_rows)} related lore revision(s)")
+    lore_block = None
+    if deep:
+        if lore_rows:
+            lore_block = _format_lore_rows(f"Lore · {thing.name}", lore_rows)
+        else:
+            lore_block = fmt.hint("No related lore revisions.")
+    elif lore_rows:
+        lore_block = fmt.hint(
+            f"{len(lore_rows)} related lore revision(s)  ·  examine --deep {thing.name}"
+        )
 
     # Technical ids last — not between context and prose
     id_footer = fmt.hint(
@@ -1336,11 +2029,10 @@ def _examine(world: World, arg: str) -> str:
         portal_meta,
         lineage_block,
         compose_block,
-        inner_life,
-        contains,
+        *placement_blocks,
         run_hint_line,
         dialog_meta,
-        lore_hint,
+        lore_block,
         id_footer,
         gap=1,
     )
@@ -3414,12 +4106,72 @@ def _lore(world: World, arg: str) -> str:
 
 
 def _dig(world: World, arg: str) -> str:
+    """
+    dig [place[/subtype]] <name> …   — free-standing place (link after)
+    dig bin|box|crate|thing|… <name> [| desc]  — prime + instance **here** (floor)
+
+    Non-place kinds used to be swallowed as place *names* (``dig bin Table`` made
+    a free-floating place called \"bin Table\" — not takeable, not put-into).
+    """
     if not arg:
         return fmt.hint(
-            "Usage: dig [place/subtype] <place name> [realm <name>] [timeline <name>]\n"
-            "  e.g. dig place/app Inbox Surface  ·  dig place/storybook Soft Alibis"
+            "Usage:\n"
+            "  dig [place/subtype] <place name> [realm …] [timeline …]\n"
+            "  dig bin <name> [| desc]   ·  dig box/calendar Q3 2026\n"
+            "  dig thing Pink Button | A button she found for him.\n"
+            "Places are free-standing (link after). Bins/things land on the floor here."
         )
     loc = world.player_location()
+    tokens = arg.strip().split()
+    if tokens:
+        k, sub = parse_kind_spec(tokens[0])
+        # Non-place roots: dig bin Table | … → create + instance on this floor
+        if k and k != "place" and k in KINDS:
+            rest = " ".join(tokens[1:]).strip()
+            if not rest:
+                return fmt.hint(
+                    f"Usage: dig {k} <name> [| description]\n"
+                    f"  e.g. dig bin Table | Oak.  ·  dig {k}/calendar Q3 2026"
+                )
+            if "|" in rest:
+                name_part, _, desc = rest.partition("|")
+                name = name_part.strip()
+                desc = desc.strip()
+            else:
+                name = rest
+                desc = ""
+            if not name:
+                return fmt.hint(f"Usage: dig {k} <name> [| description]")
+            meta = {"subtype": sub} if sub else None
+            ven_id = world.create_ven(name, k, description=desc, meta=meta)
+            ven = world.get_ven(ven_id)
+            display = ven.name if ven else name
+            inst_id = world.instantiate(
+                ven_id,
+                realm_instance_id=loc.realm_instance_id if loc else None,
+                timeline_instance_id=loc.timeline_instance_id if loc else None,
+            )
+            if loc is not None:
+                if is_inner_life_kind(k, sub):
+                    slot = default_inner_slot(k, sub)
+                else:
+                    slot = "interior"
+                world.put_in(inst_id, loc.id, slot=slot)
+
+            def undo_dig_here(w: World, iid=inst_id, vid=ven_id) -> None:
+                w.delete_instance(iid)
+                w.delete_ven(vid)
+
+            world.undo_stack.push(f"dig {display}", undo_dig_here)
+            kind_bit = format_kind_label(k, sub)
+            ref = world.short_ref_of(inst_id)
+            return fmt.join_blocks(
+                fmt.ok(f"Dug · {display}  ·  here"),
+                fmt.hint(f"{kind_bit}  ·  #{ref}  ·  instance {inst_id}"),
+                fmt.hint("take / put / examine  ·  undo to remove"),
+                gap=0,
+            )
+
     name, realm_id, timeline_id, subtype = _parse_dig_layers(world, arg, loc)
     meta = {"subtype": subtype} if subtype else None
     ven_id = world.create_ven(name, "place", description="", meta=meta)
@@ -4641,7 +5393,7 @@ def _create(world: World, arg: str) -> str:
     if kind not in KINDS:
         return fmt.err(
             f"Unknown kind {kind!r}.  Try: kinds  ·  "
-            f"roots: person place container thing folio symbol sense"
+            f"roots: person place bin thing folio symbol sense event"
         )
     if subtype and kind not in SUBTYPE_KINDS:
         return fmt.err(
@@ -5132,9 +5884,10 @@ def _lost_list(world: World, arg: str = "") -> str:
 
 
 def _split_put_args(arg: str) -> tuple[str, str] | None:
-    """Split ``put <thing> in|into <container…>`` (prefer longer sep first)."""
+    """Split ``put <thing> in|into|on|onto <container…>`` (prefer longer sep first)."""
     lower = arg.lower()
-    for sep in (" into ", " in "):
+    # on/onto: natural for tables, shelves, trays (same placement as in/into)
+    for sep in (" into ", " onto ", " in ", " on "):
         if sep in lower:
             idx = lower.find(sep)
             left = arg[:idx].strip()
@@ -5158,7 +5911,9 @@ def _resolve_put_destination(
 
     key = cont_name.strip()
     if not key:
-        return None, fmt.hint("Usage: put <thing> in <container|exit|place>")
+        return None, fmt.hint(
+            "Usage: put <thing> in|on <container|exit|place>"
+        )
     low = key.lower()
     if low in ("here", "room", "floor", "ground", "place"):
         loc = world.player_location()
@@ -5188,7 +5943,7 @@ def _resolve_put_destination(
     return None, fmt.err(
         f"No container or nearby place {key!r}.\n"
         + fmt.hint(
-            "put <thing> in <box|person|me>  ·  put <thing> in <path>  ·  "
+            "put <thing> in|on <box|person|me>  ·  put <thing> in <path>  ·  "
             "put <thing> in <adjacent place>  ·  paths"
         )
     )
@@ -5199,24 +5954,26 @@ def _put(world: World, arg: str) -> str:
 
     if not arg:
         return fmt.hint(
-            "Usage: put <thing> in <container|path|nearby place> [slot] "
+            "Usage: put <thing> in|into|on|onto <container|path|nearby place> [slot] "
             "[when @N | --when 0]\n"
-            "  put hope in cartographer  ·  put silver in box --when 1\n"
+            "  put hope in cartographer  ·  put silver on tray  ·  put silver in box --when 1\n"
             "  Inner life: put <sense|…> in <person>  (slot auto = kind)"
         )
     arg, story_when, node_index = peel_when_anywhere(arg)
     split = _split_put_args(arg)
     if not split:
         return fmt.hint(
-            "Usage: put <thing> in <container|path|nearby place> [slot] "
+            "Usage: put <thing> in|into|on|onto <container|path|nearby place> [slot] "
             "[when @N | --when 0]\n"
-            "  put silver in box  ·  put silver in north  ·  put Archivist into Side Alcove\n"
+            "  put silver in box  ·  put silver on table  ·  put Archivist into Side Alcove\n"
             "  Inner life: put <goal|feeling|…> in <person>  (slot auto = kind)"
         )
     thing_name, rest_s = split
     rest = rest_s.split()
     if not rest:
-        return fmt.hint("Usage: put <thing> in <container|exit|nearby place> [slot]")
+        return fmt.hint(
+            "Usage: put <thing> in|on <container|exit|nearby place> [slot]"
+        )
     slot = "interior"
     slot_explicit = False
     if rest[-1] in CONTAINMENT_SLOTS:
@@ -5226,7 +5983,9 @@ def _put(world: World, arg: str) -> str:
     else:
         cont_name = " ".join(rest)
     if not cont_name:
-        return fmt.hint("Usage: put <thing> in <container|exit|nearby place> [slot]")
+        return fmt.hint(
+            "Usage: put <thing> in|on <container|exit|nearby place> [slot]"
+        )
 
     thing = world.resolve_here_named(thing_name)
     if not thing:
@@ -5256,7 +6015,9 @@ def _put(world: World, arg: str) -> str:
     if cont.ven_kind == "place" and not slot_explicit:
         slot = "interior"
     # Containers (house, box) default interior when entered as put target
-    if cont.ven_kind == "container" and not slot_explicit:
+    from .world import BIN_KINDS
+
+    if cont.ven_kind in BIN_KINDS and not slot_explicit:
         slot = "interior"
 
     prior = world.container_of(thing.id)

@@ -25,18 +25,25 @@ WIKI_LINKS_KEY = "wiki_links"
 
 def parse_deep_flag(arg: str) -> tuple[str, bool]:
     """
-    Strip a trailing ``deep`` token from a query.
+    Strip ``deep`` / ``--deep`` / ``-deep`` tokens from a query (any position).
 
-    ``\"Elon deep\"`` → (``\"Elon\"``, True); ``\"deep\"`` alone → (``\"\"``, True).
+    ``\"Elon deep\"`` → (``\"Elon\"``, True);
+    ``\"--deep at box\"`` → (``\"at box\"``, True);
+    ``\"deep\"`` alone → (``\"\"``, True).
     """
     raw = (arg or "").strip()
     if not raw:
         return "", False
     parts = raw.split()
-    if parts and parts[-1].lower() == "deep":
-        rest = " ".join(parts[:-1]).strip()
-        return rest, True
-    return raw, False
+    deep = False
+    kept: list[str] = []
+    for p in parts:
+        pl = p.lower()
+        if pl in ("deep", "--deep", "-deep"):
+            deep = True
+            continue
+        kept.append(p)
+    return " ".join(kept).strip(), deep
 
 
 def format_composition_tree_lines(

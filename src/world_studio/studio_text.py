@@ -39,12 +39,18 @@ _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _CODE_RE = re.compile(r"`([^`]+)`")
 _ITALIC_RE = re.compile(r"(?<!\w)_([^_\n]+)_(?!\w)")
 _WIKI_RE = re.compile(r"\[\[([^\]]+)\]\]")
+# External links: [label](https://…)  or bare https?://…
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+_BARE_URL_RE = re.compile(r"(?<![\w/@])(https?://[^\s\[\]<>\"']+)")
 _AT_TAG_RE = re.compile(r"(?<!\w)@([\w][\w-]*)")
 _HASH_TAG_RE = re.compile(r"(?<!\w)#([\w][\w-]*)")
 # Author color: {yellow}text{/} or {yellow}text{/yellow}  (whitelist only)
 _COLOR_SPAN_RE = re.compile(
     r"\{([a-zA-Z][\w-]*)\}([^\n{]+?)\{/(?:\1)?\}"
 )
+
+# Trailing punctuation often glued to bare URLs in prose
+_URL_TRAIL_CHARS = ".,;:!?)]}\"'>"
 
 # Whitelist name → Rich color/style token (no free-form injection)
 STUDIO_COLORS: dict[str, str] = {
@@ -151,8 +157,27 @@ def _label_col_width(labels: list[str]) -> int:
 
 
 def _render_field_row(lab: str, val: str, col_w: int) -> str:
+    """
+    One field row: label column + value, hard-wrapped under the value column.
+
+    Continuations hang at ``col_w + 2`` spaces (padded key + gap) so soft wrap
+    does not slam long values back to column 0.
+    """
+    from .measure import CONTENT_MEASURE, wrap_text_hanging
+
     lab_s = safe(lab).ljust(col_w)
-    return f"[dim]{lab_s}[/dim]  {_render_inline(val)}"
+    hang = col_w + 2  # plain-width prefix before value
+    # Value width inside the artboard (label + gap already spent)
+    val_w = max(8, CONTENT_MEASURE - hang)
+    segs = wrap_text_hanging(val if val is not None else "", val_w)
+    rows: list[str] = []
+    for j, seg in enumerate(segs):
+        body = _render_inline(seg)
+        if j == 0:
+            rows.append(f"[dim]{lab_s}[/dim]  {body}")
+        else:
+            rows.append(f"{' ' * hang}{body}")
+    return "\n".join(rows)
 
 
 def render_studio_text(source: str) -> str:
@@ -394,15 +419,72 @@ def resolve_studio_color(name: str) -> str | None:
     return STUDIO_COLORS.get((name or "").strip().lower())
 
 
+def is_openable_url(url: str) -> bool:
+    """True if *url* is a safe http(s) target for browser open from the TUI."""
+    u = (url or "").strip()
+    if not u or len(u) > 2000:
+        return False
+    if any(c in u for c in "\n\r\t []"):
+        return False
+    low = u.lower()
+    if not (low.startswith("https://") or low.startswith("http://")):
+        return False
+    host = u.split("://", 1)[1].split("/")[0].split("?")[0].split("#")[0]
+    host = host.split("@")[-1]  # drop userinfo if present
+    if not host or host.startswith("."):
+        return False
+    return True
+
+
+def _action_quote(url: str) -> str:
+    """Quote *url* as a Python string literal for Textual ``@click`` actions."""
+    if "'" not in url:
+        return f"'{url}'"
+    if '"' not in url:
+        return f'"{url}"'
+    return "'" + url.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _split_bare_url(raw: str) -> tuple[str, str]:
+    """Return (url, trailing_punct) for a bare-URL match."""
+    url = raw
+    trail = ""
+    while url and url[-1] in _URL_TRAIL_CHARS:
+        trail = url[-1] + trail
+        url = url[:-1]
+    return url, trail
+
+
+def render_open_link(url: str, label: str | None = None) -> str:
+    """
+    Rich/Textual markup for a clickable external link.
+
+    Emits cyan+underline text with ``@click=app.open_url(...)`` so a left-click
+    (or terminal hyperlink handling where supported) opens the system browser.
+    Unknown/unsafe URLs fall back to escaped plain text.
+    """
+    u = (url or "").strip()
+    text = label if label is not None else u
+    if not is_openable_url(u):
+        return safe(text)
+    q = _action_quote(u)
+    return (
+        f"[cyan underline][@click=app.open_url({q})]{safe(text)}[/][/]"
+    )
+
+
 def _render_inline(text: str, *, _depth: int = 0) -> str:
     """
     Apply inline Studio Text transforms, escaping free text segments.
 
-    Order: extract protected spans (code, color, wiki, bold, italic, tags) via
-    iterative replace with placeholders, then escape remainder, then restore.
+    Order: extract protected spans (code, color, wiki, md-link, bare-url,
+    bold, italic, tags) via iterative replace with placeholders, then escape
+    remainder, then restore.
 
     Color spans: ``{yellow}text{/}`` or ``{yellow}text{/yellow}`` — whitelist
     only (see :data:`STUDIO_COLORS`). Nested markup inside a span is allowed.
+    External links: ``[label](https://…)`` or bare ``https://…`` — click opens
+    the system browser (see :func:`render_open_link`).
     """
     if not text:
         return ""
@@ -435,6 +517,19 @@ def _render_inline(text: str, *, _depth: int = 0) -> str:
     def repl_wiki(m: re.Match[str]) -> str:
         return stash(f"[cyan]⟦{safe(m.group(1))}⟧[/cyan]")
 
+    def repl_md_link(m: re.Match[str]) -> str:
+        label, url = m.group(1), m.group(2)
+        if not is_openable_url(url):
+            return m.group(0)
+        return stash(render_open_link(url, label))
+
+    def repl_bare_url(m: re.Match[str]) -> str:
+        raw = m.group(1)
+        url, trail = _split_bare_url(raw)
+        if not is_openable_url(url):
+            return m.group(0)
+        return stash(render_open_link(url, url)) + trail
+
     def repl_bold(m: re.Match[str]) -> str:
         return stash(f"[bold]{safe(m.group(1))}[/bold]")
 
@@ -451,6 +546,8 @@ def _render_inline(text: str, *, _depth: int = 0) -> str:
     s = _CODE_RE.sub(repl_code, s)
     s = _COLOR_SPAN_RE.sub(repl_color, s)
     s = _WIKI_RE.sub(repl_wiki, s)
+    s = _MD_LINK_RE.sub(repl_md_link, s)
+    s = _BARE_URL_RE.sub(repl_bare_url, s)
     s = _BOLD_RE.sub(repl_bold, s)
     s = _ITALIC_RE.sub(repl_italic, s)
     s = _AT_TAG_RE.sub(repl_at, s)

@@ -31,17 +31,21 @@ from .ids import (
 KINDS = (
     "person",
     "place",
-    "container",
+    "bin",
     "thing",
     "folio",
     "symbol",
     "sense",
+    "event",
     "realm",
     "timeline",
 )
 
 # Contained in a person → examine/who "Inner life" (not generic Contains)
 INNER_LIFE_KINDS = frozenset({"sense"})
+
+# Furniture that stores (placement buckets on look). ``container`` = legacy DB rows.
+BIN_KINDS = frozenset({"bin", "container"})
 
 # Legacy names accepted at create/parse; folded into lean roots + optional subtype.
 # Also used so older docs/tests can still say feeling/book/object briefly.
@@ -54,14 +58,18 @@ KIND_ALIASES: dict[str, str] = {
     "goal": "sense",
     "desire": "sense",
     "purpose": "sense",
-    "event": "sense",
+    # event is a root again (was briefly folded to sense/event)
     "archetype": "person",  # person/archetype — persons of symbols
     "other": "thing",
+    # container was the old store-root; box/crate are casual synonyms
+    "container": "bin",
+    "box": "bin",
+    "crate": "bin",
 }
 
 # Author subtypes welcome on all adventure roots (not only a “feeling group”)
 SUBTYPE_KINDS = frozenset(
-    {"person", "place", "container", "thing", "folio", "symbol", "sense"}
+    {"person", "place", "bin", "thing", "folio", "symbol", "sense", "event"}
 )
 
 # Back-compat name used in a few create/help strings
@@ -79,6 +87,14 @@ LINK_TYPE_CODES: dict[str, str] = {
 
 # Instance state key: object portal → place instance id (run travel; not room exits)
 PORTAL_STATE_KEY = "portal_to"
+# Portal lock: bool — when true, open/run/enter fail until unlock
+PORTAL_LOCKED_KEY = "portal_locked"
+# Portal key: specific key *instance* id (prime Key + many named spawns)
+PORTAL_KEY_INSTANCE_KEY = "portal_key_instance_id"
+# Legacy: key by prime VEN (any spawn of that prime). Prefer instance bind.
+PORTAL_KEY_VEN_KEY = "portal_key_ven_id"
+# Flavor line shown when open/run fails while locked (set via lock -d)
+PORTAL_LOCK_DENY_KEY = "portal_lock_deny"
 # Player state: stack of run sessions for logout (return place, not a room exit)
 PORTAL_STACK_KEY = "portal_stack"
 
@@ -160,6 +176,8 @@ def normalize_kind(
       archetype → person/archetype
       object → thing
       material → thing/material
+      container / box / crate → bin
+      event stays event (subtypes free: event/meeting, event/beat, …)
     """
     k = (kind or "").strip().lower()
     sub = (subtype or "").strip().lower() or None
@@ -172,12 +190,13 @@ def normalize_kind(
                 sub = "material"
             elif k == "book":
                 sub = "book"
-            elif k in ("feeling", "goal", "desire", "purpose", "event"):
+            elif k in ("feeling", "goal", "desire", "purpose"):
                 sub = k
             elif k == "concept":
                 sub = None
             elif k == "object":
                 sub = None
+            # container/box/crate → bin with no forced subtype
         return new_k, sub
     return k, sub
 
@@ -486,15 +505,135 @@ class World:
         Stored on the **app instance** ``state_json`` (not on containment).
         take / drop / put / install never clear this — only portal clear (or
         explicit set to None) does. Install-in-device is presence for run only.
+        Clearing the portal also clears lock + key bind.
         """
         st = self.instance_state(instance_id)
         if place_instance_id is None:
             st.pop(PORTAL_STATE_KEY, None)
+            st.pop(PORTAL_LOCKED_KEY, None)
+            st.pop(PORTAL_KEY_INSTANCE_KEY, None)
+            st.pop(PORTAL_KEY_VEN_KEY, None)
+            st.pop(PORTAL_LOCK_DENY_KEY, None)
         else:
             dest = self.get_instance(place_instance_id)
             if dest is None or dest.ven_kind != "place":
                 raise ValueError("Portal destination must be a place instance")
             st[PORTAL_STATE_KEY] = place_instance_id
+        self.set_instance_state(instance_id, st)
+
+    def is_portal_locked(self, instance_id: str) -> bool:
+        """True when portal token requires unlock before open/run/enter."""
+        raw = self.instance_state(instance_id).get(PORTAL_LOCKED_KEY)
+        if raw is True or raw == 1:
+            return True
+        if isinstance(raw, str) and raw.strip().lower() in ("1", "true", "yes", "locked"):
+            return True
+        return False
+
+    def set_portal_locked(self, instance_id: str, locked: bool) -> None:
+        st = self.instance_state(instance_id)
+        if locked:
+            st[PORTAL_LOCKED_KEY] = True
+        else:
+            st.pop(PORTAL_LOCKED_KEY, None)
+        self.set_instance_state(instance_id, st)
+
+    def get_portal_key_instance_id(self, instance_id: str) -> str | None:
+        """Specific key instance that unlocks this portal (preferred bind)."""
+        raw = self.instance_state(instance_id).get(PORTAL_KEY_INSTANCE_KEY)
+        if not raw:
+            return None
+        kid = str(raw).strip()
+        return kid or None
+
+    def set_portal_key_instance_id(
+        self, instance_id: str, key_instance_id: str | None
+    ) -> None:
+        """
+        Bind or clear the exact key instance for this portal.
+
+        Authoring model: one prime Key, many named spawns (Cellar Key, Suite Key).
+        ``lock door with cellar-key`` binds that copy — not every Key spawn.
+        """
+        st = self.instance_state(instance_id)
+        if key_instance_id is None:
+            st.pop(PORTAL_KEY_INSTANCE_KEY, None)
+        else:
+            st[PORTAL_KEY_INSTANCE_KEY] = key_instance_id
+            # Instance bind supersedes legacy prime-wide bind
+            st.pop(PORTAL_KEY_VEN_KEY, None)
+        self.set_instance_state(instance_id, st)
+
+    def get_portal_key_ven_id(self, instance_id: str) -> str | None:
+        """Legacy: VEN id of key prime (any spawn). Prefer instance bind."""
+        raw = self.instance_state(instance_id).get(PORTAL_KEY_VEN_KEY)
+        if not raw:
+            return None
+        vid = str(raw).strip()
+        return vid or None
+
+    def set_portal_key_ven_id(
+        self, instance_id: str, key_ven_id: str | None
+    ) -> None:
+        """Legacy prime-wide key bind. Prefer :meth:`set_portal_key_instance_id`."""
+        st = self.instance_state(instance_id)
+        if key_ven_id is None:
+            st.pop(PORTAL_KEY_VEN_KEY, None)
+        else:
+            st[PORTAL_KEY_VEN_KEY] = key_ven_id
+        self.set_instance_state(instance_id, st)
+
+    def portal_requires_key(self, portal_id: str) -> bool:
+        """True when a specific key (instance or legacy ven) is bound."""
+        return bool(
+            self.get_portal_key_instance_id(portal_id)
+            or self.get_portal_key_ven_id(portal_id)
+        )
+
+    def portal_key_matches(self, portal_id: str, key: InstanceView) -> bool:
+        """True if *key* is the bound instance (or legacy same-VEN key)."""
+        need_inst = self.get_portal_key_instance_id(portal_id)
+        if need_inst:
+            return key.id == need_inst
+        need_ven = self.get_portal_key_ven_id(portal_id)
+        if need_ven:
+            return bool(key.ven_id and key.ven_id == need_ven)
+        return True  # keyless lock
+
+    def portal_key_label(self, portal_id: str) -> str:
+        """Player-facing name of the required key, or 'the right key'."""
+        from .ids import display_name as _dn
+
+        need_inst = self.get_portal_key_instance_id(portal_id)
+        if need_inst:
+            k = self.get_instance(need_inst)
+            if k is not None:
+                return _dn(k.name)
+            return "the right key"
+        need_ven = self.get_portal_key_ven_id(portal_id)
+        if need_ven:
+            v = self.get_ven(need_ven)
+            if v is not None:
+                return _dn(v.name)
+        return "the right key"
+
+    def get_portal_lock_deny(self, instance_id: str) -> str | None:
+        """Author flavor shown when open/run hits a locked portal (``lock -d``)."""
+        raw = self.instance_state(instance_id).get(PORTAL_LOCK_DENY_KEY)
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        return text or None
+
+    def set_portal_lock_deny(
+        self, instance_id: str, message: str | None
+    ) -> None:
+        """Set or clear the locked-door refuse line."""
+        st = self.instance_state(instance_id)
+        if message is None or not str(message).strip():
+            st.pop(PORTAL_LOCK_DENY_KEY, None)
+        else:
+            st[PORTAL_LOCK_DENY_KEY] = str(message).strip()
         self.set_instance_state(instance_id, st)
 
     def install_container_of(self, instance_id: str) -> InstanceView | None:
@@ -611,12 +750,23 @@ class World:
         )
 
     def short_ref_matches(self, instance_id: str, query_ref: str) -> bool:
-        """True if *query_ref* (digits, code, or legacy slug composite) names this instance."""
+        """True if *query_ref* (digits, code, or legacy slug composite) names this instance.
+
+        Soft typing: spaces/underscores act like dashes
+        (``bin 003 0043`` matches ``BIN-003-0043``).
+        """
+        from .ids import normalize_ref_separators
+
         q = (query_ref or "").strip().lstrip("#")
         if not q:
             return False
         full = self.short_ref_of(instance_id)
         if q.casefold() == full.casefold():
+            return True
+        # Soft separators → canonical compare
+        q_soft = normalize_ref_separators(q)
+        full_soft = normalize_ref_separators(full)
+        if q_soft and q_soft.casefold() == full_soft.casefold():
             return True
         inst = self.get_instance(instance_id)
         dig = digits_from_short_ref(full)
@@ -629,21 +779,14 @@ class World:
             )
             if q.casefold() == legacy.casefold():
                 return True
-            if inst.ven_code:
-                code_only = parse_ven_code(q)
-                # bare VEN code is not enough (many instances); need digits
-                _ = code_only
+            if normalize_ref_separators(legacy).casefold() == q_soft.casefold():
+                return True
         parsed = parse_instance_ref_token(q)
         if parsed:
             if parsed.casefold() == full.casefold():
                 return True
             if parsed.isdigit() and dig == parsed:
                 return True
-            # OBJ-014-0001 style already equals full; also allow code-NNNN
-            if dig and parsed.casefold().endswith(f"-{dig}".casefold()):
-                if full.casefold().endswith(f"-{dig}".casefold()):
-                    # same digits — require unique among... leave exact full/legacy only
-                    pass
         if q.isdigit() and dig == format_instance_ref(int(q)):
             return True
         return False
@@ -1925,10 +2068,11 @@ class World:
     _TAKEABLE_KINDS = (
         "thing",
         "folio",
-        "container",  # bags you can pick up (not place-scale houses by default)
+        "bin",  # bags / furniture you can pick up (not place-scale by default)
         "sense",
         "symbol",
         # legacy kinds if any linger
+        "container",
         "object",
         "material",
         "archetype",
@@ -2154,7 +2298,7 @@ class World:
         Partition room contents for look (lean kinds):
 
         - person (not archetype) → Here (not the player)
-        - thing / folio / container → Things
+        - thing / folio / bin → Things (legacy kind partitions; look uses placement)
         - sense with subtype event → Happened Here
         - person/archetype → Force
         - sense, symbol, place, … → Also present
@@ -2175,13 +2319,14 @@ class World:
         objects = [
             c
             for c in here
-            if c.ven_kind in ("thing", "folio", "container", "object", "material", "book")
+            if c.ven_kind
+            in ("thing", "folio", "bin", "container", "object", "material", "book")
         ]
         events = [
             c
             for c in here
-            if (c.ven_kind == "sense" and _sub(c) == "event")
-            or c.ven_kind == "event"
+            if c.ven_kind == "event"
+            or (c.ven_kind == "sense" and _sub(c) == "event")  # legacy fold
         ]
         forces = [
             c

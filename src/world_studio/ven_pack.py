@@ -19,6 +19,7 @@ from .db import get_meta
 from .ids import (
     cute_name,
     digits_from_short_ref,
+    names_match,
     normalize_formal_name,
     parse_ven_code,
     slugify,
@@ -212,9 +213,10 @@ def build_export_instance_pack(
     except Exception:  # noqa: BLE001
         desc_ov = None
     name_ov = world.get_name_override(inst.id)
-    # Prefer explicit override; if title differs from prime, store display title
-    if not name_ov and display_differs(inst.name, ven.name):
-        name_ov = inst.name
+    # Always carry the lived display title so import never falls through to a
+    # host prime's name when codes collide (FOL-002 in world A ≠ FOL-002 in B).
+    if not name_ov:
+        name_ov = inst.name or ven.name
 
     pages = (
         _pages_from_instance(world, inst.id)
@@ -255,6 +257,113 @@ def build_export_instance_pack(
 
 def display_differs(a: str | None, b: str | None) -> bool:
     return (a or "").strip().casefold() != (b or "").strip().casefold()
+
+
+def origin_frag(origin_world: str | None, *, max_len: int = 28) -> str:
+    """
+    Short stamp from export origin for import titles / slugs.
+
+    ``Story Spine`` → ``Story Spine``; path-like names use the last segment.
+    """
+    s = (origin_world or "").strip()
+    if not s:
+        return ""
+    # path-ish
+    s = s.replace("\\", "/").rstrip("/")
+    if "/" in s:
+        s = s.rsplit("/", 1)[-1]
+    for suf in (".world.db", ".db", ".ven"):
+        if s.lower().endswith(suf):
+            s = s[: -len(suf)]
+    s = re.sub(r"\s+", " ", s).strip()
+    if len(s) > max_len:
+        s = s[: max_len - 1].rstrip() + "…"
+    return s
+
+
+def title_with_origin(name: str | None, origin_world: str | None) -> str:
+    """
+    ``World Studio Help · Kitten-Lab`` — keep own nature visible after import.
+
+    Skips double-stamping when the origin frag is already in the title.
+    """
+    base = (name or "").strip() or "Imported"
+    frag = origin_frag(origin_world)
+    if not frag:
+        return base
+    if frag.casefold() in base.casefold():
+        return base
+    return f"{base} · {frag}"
+
+
+def _slug_with_origin(slug_hint: str, origin_world: str | None) -> str:
+    base = slugify(slug_hint or "imported") or "imported"
+    frag = origin_frag(origin_world)
+    if not frag:
+        return base
+    tail = slugify(frag) or "origin"
+    # Avoid doubling
+    if tail and tail.casefold() not in base.casefold():
+        return f"{base}-{tail}"
+    return base
+
+
+def _codes_equal(a: str | None, b: str | None) -> bool:
+    if not a or not b:
+        return False
+    pa, pb = parse_ven_code(a), parse_ven_code(b)
+    if pa and pb:
+        return pa == pb
+    return a.strip().upper() == b.strip().upper()
+
+
+def _prime_same_identity(
+    existing: Any,
+    *,
+    pack_name: str,
+    pack_slug: str,
+    pack_kind: str,
+    home_code: str,
+    origin_world: str,
+) -> bool:
+    """
+    True when *existing* is the same conceptual prime as the pack.
+
+    Home codes alone are not enough: FOL-002 in Kitten-Lab is not FOL-002
+    in another world. Match by name/slug, or provenance (origin + home_code).
+    """
+    if existing is None:
+        return False
+    if (getattr(existing, "kind", None) or "").lower() != (pack_kind or "").lower():
+        return False
+
+    # Same formal name or slug → same concept (even if codes differ)
+    if names_match(existing.name, pack_name):
+        return True
+    pack_name_base = pack_name.split(" · ")[0].strip()
+    if pack_name_base and names_match(existing.name, pack_name_base):
+        return True
+    if pack_name_base and names_match(
+        (existing.name or "").split(" · ")[0].strip(), pack_name_base
+    ):
+        return True
+    if pack_slug and getattr(existing, "slug", None):
+        es = slugify(existing.slug) or ""
+        ps = slugify(pack_slug) or ""
+        if es and ps and (es == ps or es.startswith(ps + "-") or ps.startswith(es + "-")):
+            return True
+
+    # Already-imported: ie.origin_world + ie.home_code
+    meta = getattr(existing, "meta", None) or {}
+    ie = meta.get("ie") if isinstance(meta, dict) else None
+    if isinstance(ie, dict) and origin_world and home_code:
+        ie_origin = str(ie.get("origin_world") or "").strip()
+        ie_home = str(ie.get("home_code") or "").strip()
+        if ie_origin and names_match(ie_origin, origin_world) and _codes_equal(
+            ie_home, home_code
+        ):
+            return True
+    return False
 
 
 def write_pack(pack: dict[str, Any], path: Path) -> Path:
@@ -388,6 +497,9 @@ def _ensure_prime(
 ) -> tuple[str, str, str | None, bool]:
     """
     Ensure prime exists in world. Returns (ven_id, local_code, remap_note, created).
+
+    Does **not** treat home_code alone as identity: FOL-002 from Kitten-Lab is not
+    whatever already holds FOL-002 here. Same concept = name/slug/provenance match.
     """
     from .world import KINDS
 
@@ -400,14 +512,49 @@ def _ensure_prime(
         parse_ven_code(str(prime.get("code") or ""))
         or str(prime.get("code") or "").strip()
     )
-    slug_hint = prime.get("slug") or slugify(name)
+    slug_hint = str(prime.get("slug") or slugify(name) or "imported")
+    prov = pack.get("provenance") or {}
+    origin_world = str(prov.get("origin_world") or "")
+    export_seq = prov.get("export_seq") or pack.get("seq")
 
-    # Reuse existing prime by code or unique slug
-    existing = world.get_ven_by_code(home_code) if home_code else None
+    # Reuse only when the local prime is the same concept (not mere code collision)
+    existing = None
+    by_code = world.get_ven_by_code(home_code) if home_code else None
+    if by_code is not None and _prime_same_identity(
+        by_code,
+        pack_name=name,
+        pack_slug=slug_hint,
+        pack_kind=kind,
+        home_code=home_code,
+        origin_world=origin_world,
+    ):
+        existing = by_code
     if existing is None and slug_hint:
         by_slug = world.find_ven(str(slug_hint))
-        if by_slug and by_slug.kind == kind:
+        if by_slug and _prime_same_identity(
+            by_slug,
+            pack_name=name,
+            pack_slug=slug_hint,
+            pack_kind=kind,
+            home_code=home_code,
+            origin_world=origin_world,
+        ):
             existing = by_slug
+    # Already imported under a remapped code (same origin + home_code in ie)
+    if existing is None and origin_world and home_code:
+        for v in world.list_vens(kind=kind):
+            if v is None:
+                continue
+            if _prime_same_identity(
+                v,
+                pack_name=name,
+                pack_slug=slug_hint,
+                pack_kind=kind,
+                home_code=home_code,
+                origin_world=origin_world,
+            ):
+                existing = v
+                break
     if existing is not None:
         return existing.id, existing.code or home_code or "", None, False
 
@@ -419,17 +566,35 @@ def _ensure_prime(
     if subtype:
         base_meta["subtype"] = subtype
 
-    prov = pack.get("provenance") or {}
-    origin_world = str(prov.get("origin_world") or "")
-    export_seq = prov.get("export_seq") or pack.get("seq")
-
+    # Code free *and* no different-concept occupant → keep home code
     local_code = (
         home_code if home_code and world.get_ven_by_code(home_code) is None else None
     )
     remap_note = None
     if home_code and local_code is None:
         local_code = world.allocate_ven_code(kind)
-        remap_note = f"code remapped {home_code} → {local_code}"
+        remap_note = f"code remapped {home_code} → {local_code} (local {home_code} is a different concept)"
+    elif home_code and by_code is not None and existing is None:
+        # defensive: by_code occupied by different concept (handled above)
+        pass
+
+    # Slug: if taken by a different concept, stamp origin so create_ven uniqueness works
+    create_slug = slug_hint
+    slug_hit = world.find_ven(str(create_slug)) if create_slug else None
+    if slug_hit is not None and not _prime_same_identity(
+        slug_hit,
+        pack_name=name,
+        pack_slug=slug_hint,
+        pack_kind=kind,
+        home_code=home_code,
+        origin_world=origin_world,
+    ):
+        create_slug = _slug_with_origin(slug_hint, origin_world or target_world_label)
+
+    # Prime display name keeps pack identity; origin frag only when remapped
+    create_name = name
+    if remap_note and origin_world:
+        create_name = title_with_origin(name, origin_world)
 
     parent_id = None
     parent_soft = prime.get("parent")
@@ -443,16 +608,17 @@ def _ensure_prime(
         "imported_at": datetime.now(timezone.utc).isoformat(),
         "export_seq": export_seq,
         "pack_format": PACK_VERSION,
+        "pack_name": name,
     }
     if remap_note:
         ie_meta["code_remap"] = remap_note
     base_meta["ie"] = ie_meta
 
     ven_id = world.create_ven(
-        name,
+        create_name,
         kind,
         description=description,
-        slug=slug_hint,
+        slug=create_slug,
         tags=tags,
         meta=base_meta,
         parent_ven_id=parent_id,
@@ -504,12 +670,23 @@ def import_pack(
     - prime pack: ensures prime; book template pages → unplaced catalog instance
     - instance pack: ensures prime; creates a new instance (into place if given
       and kind is not place)
+    - tree pack (ven-minter): root instance + nested contents (put_in recursively)
     """
     pack_kind = str(
         pack.get("pack_kind")
         or (pack.get("provenance") or {}).get("pack_kind")
         or "prime"
     )
+
+    # Tree pack from VEN Minter (nested inventory)
+    if pack_kind == "tree" or pack.get("node"):
+        return _import_tree_pack(
+            world,
+            pack,
+            target_world_label=target_world_label,
+            place_instance_id=place_instance_id,
+        )
+
     ven_id, local_code, remap, created = _ensure_prime(
         world, pack, target_world_label=target_world_label
     )
@@ -545,7 +722,14 @@ def import_pack(
             note = f"{remap}  ·  {note}"
         return ven_id, local_code, existing_inst.id, note
 
-    name_ov = inst_data.get("name_override")
+    # Lived title from pack (export always sets this now); fall back to prime name
+    prime_name = normalize_formal_name(
+        (pack.get("prime") or {}).get("name") or "Imported"
+    )
+    name_ov = inst_data.get("name_override") or prime_name
+    # Stamp origin so host FOL-00N parent names never mask foreign identity
+    if origin_world:
+        name_ov = title_with_origin(str(name_ov), origin_world)
     desc_ov = inst_data.get("description_override")
     dig = digits_from_short_ref(str(inst_data.get("short_ref_digits") or "")) or None
     # Prefer home digits only if free for this prime; otherwise allocate next
@@ -570,6 +754,7 @@ def import_pack(
             "imported_into": target_world_label,
             "imported_at": datetime.now(timezone.utc).isoformat(),
             "pack_kind": "instance",
+            "pack_title": prime_name,
         }
     }
     if dig:
@@ -583,7 +768,6 @@ def import_pack(
         timeline_instance_id=timeline_id,
         state=state,
     )
-
     # Place free-standing; everything else into current place when available
     if kind != "place" and loc:
         from .world import default_inner_slot, is_inner_life_kind
@@ -611,6 +795,136 @@ def import_pack(
         _apply_book_pages(world, inst_id, pages)
 
     return ven_id, local_code, inst_id, remap
+
+
+def _import_tree_pack(
+    world: Any,
+    pack: dict[str, Any],
+    *,
+    target_world_label: str,
+    place_instance_id: str | None = None,
+) -> tuple[str, str, str | None, str | None]:
+    """
+    Import a ven-minter tree pack: root + nested contents.
+
+    Each node ensures a prime, creates an instance, put_in under parent
+    (or *place_instance_id* for the root).
+    """
+    from .world import default_inner_slot, is_inner_life_kind
+
+    node = pack.get("node")
+    if not isinstance(node, dict):
+        raise ValueError("tree pack missing node")
+
+    prov = pack.get("provenance") or {}
+    origin_world = str(prov.get("origin_world") or "ven-minter")
+    notes: list[str] = []
+
+    def hydrate(
+        n: dict[str, Any], parent_inst_id: str | None
+    ) -> tuple[str, str, str]:
+        """Returns (ven_id, local_code, inst_id)."""
+        prime = n.get("prime") or {}
+        # Fake a prime-shaped pack for _ensure_prime
+        fake = {
+            "prime": prime,
+            "lore": n.get("lore") or [],
+            "wiki_links": [],
+            "book_pages": n.get("book_pages") or [],
+            "provenance": {
+                "origin_world": origin_world,
+                "home_code": prime.get("code") or "",
+            },
+        }
+        ven_id, local_code, remap, _created = _ensure_prime(
+            world, fake, target_world_label=target_world_label
+        )
+        if remap:
+            notes.append(remap)
+
+        ven = world.get_ven(ven_id)
+        kind = (ven.kind if ven else prime.get("kind") or "thing") or "thing"
+        inst_data = n.get("instance") or {}
+        dig = digits_from_short_ref(str(inst_data.get("short_ref_digits") or "")) or None
+        taken = world._short_ref_digits_taken(ven_id)  # noqa: SLF001
+        if dig and dig in taken:
+            dig = None
+
+        realm_id = timeline_id = None
+        if place_instance_id:
+            place = world.get_instance(place_instance_id)
+            if place:
+                realm_id = place.realm_instance_id
+                timeline_id = place.timeline_instance_id
+
+        state: dict[str, Any] = {
+            "ie": {
+                "origin_world": origin_world,
+                "home_code": str(prime.get("code") or local_code or ""),
+                "imported_into": target_world_label,
+                "imported_at": datetime.now(timezone.utc).isoformat(),
+                "pack_kind": "tree",
+                "tool": (prov.get("tool") or "ven-minter"),
+            }
+        }
+        if dig:
+            state["short_ref"] = dig
+
+        # Lived title + origin frag (same rule as instance packs)
+        prime_name = normalize_formal_name(prime.get("name") or "Imported")
+        name_ov = inst_data.get("name_override") or prime_name
+        if origin_world:
+            name_ov = title_with_origin(str(name_ov), origin_world)
+        desc_ov = inst_data.get("description_override")
+        inst_id = world.instantiate(
+            ven_id,
+            name_override=name_ov if name_ov else None,
+            description_override=desc_ov,
+            realm_instance_id=realm_id,
+            timeline_instance_id=timeline_id,
+            state=state,
+        )
+
+        # Containment
+        slot = str(inst_data.get("slot") or "interior")
+        if parent_inst_id:
+            if is_inner_life_kind(kind, ven.subtype if ven else None):
+                slot = default_inner_slot(kind, ven.subtype if ven else None)
+            world.put_in(inst_id, parent_inst_id, slot=slot)
+        elif kind != "place" and place_instance_id:
+            if is_inner_life_kind(kind, ven.subtype if ven else None):
+                slot = default_inner_slot(kind, ven.subtype if ven else None)
+            else:
+                slot = "interior"
+            world.put_in(inst_id, place_instance_id, slot=slot)
+
+        # Prime lore (from minter) onto ven once — _ensure_prime may already add
+        # Instance-level empty; attach minter lore to ven if just created is ok
+        for entry in n.get("lore") or []:
+            if not isinstance(entry, dict):
+                continue
+            body = entry.get("body") or ""
+            if not str(body).strip():
+                continue
+            # Prefer instance lore so copies can differ later
+            world.add_lore(
+                "instance",
+                inst_id,
+                body=str(body),
+                title=str(entry.get("title") or ""),
+                when_label=entry.get("when_label"),
+                author=str(entry.get("author") or "minter"),
+            )
+
+        for child in n.get("contents") or []:
+            if isinstance(child, dict):
+                hydrate(child, inst_id)
+
+        return ven_id, local_code, inst_id
+
+    ven_id, local_code, root_inst = hydrate(node, None)
+    note = " · ".join(dict.fromkeys(notes)) if notes else None
+    return ven_id, local_code, root_inst, note
 
 
 def _apply_book_pages(world: Any, inst_id: str, pages: list) -> None:
